@@ -79,13 +79,49 @@ def validate_snapshot(body):
     zoom=view.get('timeline_zoom',1)
     if not isinstance(zoom,(int,float)) or not math.isfinite(zoom) or not 1<=zoom<=4:
         raise ValueError('時間軸縮放值錯誤')
+    timeline_style=view.get('timeline_style','density')
+    if timeline_style not in ('density','nodes'):
+        raise ValueError('無效時間軸呈現方式')
+    raw_settings=view.get('exploration',{})
+    if not isinstance(raw_settings,dict):
+        raise ValueError('無效關聯設定')
+    exploration={}
+    for key,default,low,high,integer in [('internalMin',0,0,1,False),('crossMin',0,0,1,False),('depth',2,1,6,True),('branchLimit',4,1,12,True),('pathMin',.25,0,1,False),('maxNodes',150,1,150,True)]:
+        value=raw_settings.get(key,default)
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not low<=value<=high or (integer and int(value)!=value):
+            raise ValueError('關聯設定超出範圍')
+        exploration[key]=value
+    glow=view.get('glow',{})
+    if not isinstance(glow,dict) or not isinstance(glow.get('enabled',True),bool):
+        raise ValueError('無效光暈設定')
+    normalized_glow={'enabled':glow.get('enabled',True)}
+    for key,default,low,high in [('brightness',1,0,2),('radius',38,12,90),('decay',.64,.2,.9),('background',.18,.03,.6)]:
+        value=glow.get(key,default)
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not low<=value<=high:
+            raise ValueError('光暈設定超出範圍')
+        normalized_glow[key]=value
+    time_focus=view.get('time_focus',{'enabled':False,'date':None})
+    if not isinstance(time_focus,dict) or not isinstance(time_focus.get('enabled',True),bool):
+        raise ValueError('無效時間大小設定')
+    focus_date=time_focus.get('date')
+    if focus_date is not None:
+        if not isinstance(focus_date,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}',focus_date):
+            raise ValueError('時間大小焦點日期格式錯誤')
+        focus_date=dt.date.fromisoformat(focus_date).isoformat()
+    time_focus={'enabled':time_focus.get('enabled',True),'date':focus_date}
+    focus=view.get('focus',{'mode':'overview','root_ids':[],'query':'','limit':3})
+    if not isinstance(focus,dict): raise ValueError('無效 focus')
+    root_ids=focus.get('root_ids',[]);focus_mode=focus.get('mode','overview');query=focus.get('query','');limit=focus.get('limit',3)
+    if focus_mode not in ('overview','single','keyword') or not isinstance(root_ids,list) or len(root_ids)>10 or any(not isinstance(r,str) or r not in valid_view_ids for r in root_ids) or len(set(root_ids))!=len(root_ids) or not isinstance(query,str) or len(query)>200 or isinstance(limit,bool) or not isinstance(limit,int) or not 1<=limit<=10: raise ValueError('無效 focus roots 或設定')
+    if (focus_mode=='overview' and root_ids) or (focus_mode=='single' and len(root_ids)!=1) or (focus_mode=='keyword' and (not root_ids or not query.strip())): raise ValueError('focus 模式與 roots 不一致')
+    focus={'mode':focus_mode,'root_ids':root_ids,'query':query,'limit':limit}
     search = body.get('search', {})
     if not isinstance(search,dict):
         raise ValueError('搜尋資訊格式錯誤')
     # Never persist credentials, request headers or arbitrary form fields.
     search = {k: str(search[k])[:200] for k in ('query','ticker','start','end') if k in search}
     return {'name': str(body.get('name') or search.get('query') or search.get('ticker') or '新聞圖譜')[:120],
-            'search': search, 'view': {'sources': sources, 'separate': view['separate'], 'positions': positions, 'mode':mode, 'channel_filter':channel_filter, 'cutoff':cutoff, 'timeline_zoom':zoom, 'channel_definitions':frozen_defs},
+            'search': search, 'view': {'sources': sources, 'separate': view['separate'], 'positions': positions, 'mode':mode, 'channel_filter':channel_filter, 'cutoff':cutoff, 'timeline_zoom':zoom, 'channel_definitions':frozen_defs, 'timeline_style':timeline_style, 'exploration':exploration, 'glow':normalized_glow, 'focus':focus, 'time_focus':time_focus},
             'source_graphs': normalized, 'cross_relations': cross}
 
 def validate_edges(edges, ids):

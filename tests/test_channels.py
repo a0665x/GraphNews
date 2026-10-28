@@ -61,7 +61,7 @@ class ChannelTests(unittest.TestCase):
         channels=self.store.list_channels()
         raw=article('google','Robot production earnings','https://example.com/robot','2026-01-02T00:00:00Z')
         graph=server.graph_payload([raw],channels)
-        body={'search':{'query':'robot'},'view':{'sources':['google'],'separate':False,'positions':[], 'mode':'timeline','channel_filter':custom['id'],'channel_definitions':channels,'cutoff':'2026-01-03','timeline_zoom':2},'source_graphs':{'google':graph['source_graphs']['google']},'cross_relations':[]}
+        body={'search':{'query':'robot'},'view':{'sources':['google'],'separate':False,'positions':[], 'mode':'timeline','channel_filter':custom['id'],'channel_definitions':channels,'cutoff':'2026-01-03','timeline_zoom':2,'timeline_style':'density','exploration':{'depth':4,'crossMin':.65,'pathMin':.3}},'source_graphs':{'google':graph['source_graphs']['google']},'cross_relations':[]}
         saved=self.store.save_snapshot(body)
         self.store.delete_channel(custom['id'])
         result=Store(self.path).load_snapshot(saved['id'])
@@ -69,6 +69,11 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(result['view']['timeline_zoom'],2)
         self.assertTrue(any(c['id']==custom['id'] for c in result['view']['channel_definitions']))
         self.assertTrue(result['source_graphs']['google']['articles'][0]['channels'])
+        self.assertEqual(result['view']['exploration']['depth'],4)
+        self.assertEqual(result['view']['exploration']['crossMin'],.65)
+        body['view']['exploration']['depth']=7
+        with self.assertRaises(ValueError):self.store.save_snapshot(body)
+        body['view']['exploration']['depth']=4
         body['view']['mode']='invalid'
         with self.assertRaises(ValueError):self.store.save_snapshot(body)
 

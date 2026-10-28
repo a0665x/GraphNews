@@ -45,6 +45,27 @@ class SnapshotTests(unittest.TestCase):
             self.assertNotIn('DO_NOT_SAVE','\n'.join(db.iterdump()))
         self.assertEqual(self.store.stats()['articles'],0,'Saving a view must not invent source coverage/cache records')
 
+    def test_glow_snapshot_roundtrip_and_validation(self):
+        self.payload['view']['glow']={'enabled':True,'brightness':1.4,'radius':52,'decay':.55,'background':.12}
+        saved=self.store.save_snapshot(self.payload)
+        result=Store(self.path).load_snapshot(saved['id'])
+        self.assertEqual(result['view']['glow'],self.payload['view']['glow'])
+        for key,value in [('brightness',float('nan')),('radius',500),('decay',1.1),('enabled','true')]:
+            with self.subTest(key=key):
+                changed={**self.payload,'view':{**self.payload['view'],'glow':{**self.payload['view']['glow'],key:value}}}
+                with self.assertRaises(ValueError):self.store.save_snapshot(changed)
+
+    def test_time_focus_snapshot_roundtrip_and_validation(self):
+        self.payload['view']['time_focus']={'enabled':True,'date':'2026-04-01'}
+        saved=self.store.save_snapshot(self.payload)
+        self.assertEqual(Store(self.path).load_snapshot(saved['id'])['view']['time_focus'],self.payload['view']['time_focus'])
+        for invalid in [{'enabled':'yes'}, {'date':'2026-02-30'}, {'date':12}, {'date':'20260401'}, []]:
+            changed={**self.payload,'view':{**self.payload['view'],'time_focus':invalid}}
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):self.store.save_snapshot(changed)
+        del self.payload['view']['time_focus']
+        legacy=self.store.save_snapshot(self.payload)
+        self.assertFalse(self.store.load_snapshot(legacy['id'])['view']['time_focus']['enabled'])
+
     def test_wrong_source_and_dangling_edges_rejected_atomically(self):
         self.payload['source_graphs']['google']['articles'][0]['source']['provider']='yahoo'
         with self.assertRaises(ValueError):self.store.save_snapshot(self.payload)

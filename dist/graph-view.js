@@ -76,7 +76,59 @@
     const fallback=edge.type==='shared_entity'?45:80;
     return {distance:cross?Math.max(120,fallback*2):Number.isFinite(measuredLength)?Math.max(10,Math.min(1000,measuredLength)):fallback,strength:cross?.025:.14};
   }
-  const api = { select, snapshot, groups, linkStyle };
+  const DEFAULT_SETTINGS={internalMin:0,crossMin:0,depth:2,branchLimit:4,pathMin:.25,maxNodes:150};
+  function settings(value={}) {
+    const out={};for(const [k,min,max,integer] of [['internalMin',0,1],['crossMin',0,1],['depth',1,6,true],['branchLimit',1,12,true],['pathMin',0,1],['maxNodes',1,150,true]]){
+      const n=Number(value[k]);out[k]=Number.isFinite(n)&&value[k]!==undefined?Math.max(min,Math.min(max,integer?Math.round(n):n)):DEFAULT_SETTINGS[k];
+    }return out;
+  }
+  const endpoint=value=>typeof value==='object'?value.id:value;
+  const identity=e=>e.id||[endpoint(e.source),endpoint(e.target)].sort().join(':');
+  function filterEdges(edges,options={}) {const cfg=settings(options);return edges.filter(e=>(Number(e.weight)||0)>=(e.scope==='cross'?cfg.crossMin:cfg.internalMin));}
+  // Breadth-first expansion, deterministic strongest branches first. Scores multiply along a path;
+  // these are heuristic display scores, not probabilities or causal attribution.
+  function trace(edges,rootId,options={},barriers=new Set()) {
+    const cfg=settings(options),nodes=new Map(),chosen=new Set(),adj=new Map();
+    if(rootId==null)return {nodes,edges:chosen,truncated:false};
+    for(const edge of edges){const a=endpoint(edge.source),b=endpoint(edge.target);for(const [from,to] of [[a,b],[b,a]]){if(!adj.has(from))adj.set(from,[]);adj.get(from).push({to,edge});}}
+    for(const list of adj.values())list.sort((a,b)=>(b.edge.weight||0)-(a.edge.weight||0)||identity(a.edge).localeCompare(identity(b.edge)));
+    nodes.set(rootId,{depth:0,strength:1,parent:null});let frontier=[rootId],truncated=false;
+    for(let depth=1;depth<=cfg.depth&&frontier.length;depth++){
+      const next=[];
+      frontier.sort((a,b)=>nodes.get(b).strength-nodes.get(a).strength||String(a).localeCompare(String(b)));
+      for(const id of frontier){let branches=0;for(const {to,edge} of adj.get(id)||[]){
+        const strength=nodes.get(id).strength*Math.max(0,Math.min(1,Number(edge.weight)||0));
+        if(strength<cfg.pathMin||nodes.has(to)||barriers.has(to))continue;
+        if(branches>=cfg.branchLimit){truncated=true;break;}
+        if(nodes.size>=cfg.maxNodes){truncated=true;break;}
+        nodes.set(to,{depth,strength,parent:id,edge:identity(edge)});chosen.add(identity(edge));next.push(to);branches++;
+      }}frontier=next;
+    }return {nodes,edges:chosen,truncated};
+  }
+  function traceMany(edges,roots,options={}) {
+    roots=[...new Set(roots)].slice(0,10);const nodes=new Map(),chosen=new Set(),trees=[];
+    for(const root of roots){const tree=trace(edges,root,options,new Set(roots.filter(id=>id!==root)));trees.push({root,...tree});
+      for(const [id,hit] of tree.nodes){const old=nodes.get(id),memberships=[...(old?.memberships||[]),root],parents=[...(old?.parents||[]),...(hit.parent==null?[]:[hit.parent])];nodes.set(id,{...(!old||hit.depth<old.depth?hit:old),memberships,parents:[...new Set(parents)]});}
+      for(const id of tree.edges)chosen.add(id);
+    }return {nodes,edges:chosen,roots,trees,truncated:trees.some(t=>t.truncated)};
+  }
+  // Pure runtime lookup: never fetch, navigate, filter nodes, or mutate the graph.
+  function rankRoots(rows,query,limit=3){
+    const terms=[...new Set(String(query).normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}_.^-]+/gu)||[])].slice(0,20),matches=[];
+    for(const row of rows){
+      const fields={title:row.title||'',summary:row.summary||'',symbols:(row.symbols||[]).join(' '),entities:(row.entities||[]).map(x=>(x.id||'')+' '+(x.label||'')).join(' '),topics:(row.topics||[]).map(x=>x.label||'').join(' '),channels:(row.channels||[]).map(x=>x.name||'').join(' ')};
+      let score=0;const evidence=[];
+      for(const [field,value]of Object.entries(fields))for(const term of terms){
+        const escaped=term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),ascii=/^[\x00-\x7f]+$/.test(term),prefix=/^[a-z]{4,}$/i.test(term)&&!['symbols','entities'].includes(field),pattern=ascii?'(?<![A-Za-z0-9_])'+escaped+(prefix?'[A-Za-z]*':'')+'(?![A-Za-z0-9_])':escaped;
+        const hit=String(value).normalize('NFKC').match(new RegExp(pattern,'i'));if(!hit)continue;
+        const weight={title:8,summary:2,symbols:10,entities:6,topics:3,channels:3}[field];score+=weight;evidence.push({field,term,match:hit[0],score:weight});
+      }
+      if(score)matches.push({id:row.id,title:row.title,score,evidence});
+    }
+    matches.sort((a,b)=>b.score-a.score||(a.id<b.id?-1:a.id>b.id?1:0));
+    return {roots:matches.slice(0,Math.max(1,Math.min(10,Number(limit)||3))),matched_articles:matches.length,scanned_articles:rows.length};
+  }
+  const api = { select, snapshot, groups, linkStyle, settings, filterEdges, trace, traceMany, rankRoots, identity };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.AtlasView = api;
 })(globalThis);

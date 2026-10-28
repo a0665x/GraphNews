@@ -14,6 +14,8 @@ from pathlib import Path
 from news_atlas.model import SCHEMA_VERSION, article, clean, timestamp, deduplicate, build_relations
 from news_atlas.search import normalize_request, query_key, search_source
 from news_atlas.storage import Store
+from news_atlas import api
+from news_atlas.openapi import specification
 from news_atlas.channels import definitions, annotate, classify, version as channel_version
 
 ROOT = Path(__file__).resolve().parent
@@ -99,6 +101,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
+        if path == '/api/capabilities':
+            self.json_response(200,api.capabilities());return
+        if path == '/openapi.json':
+            self.json_response(200,specification());return
+        if path == '/api/schema':
+            self.json_response(200,json.loads(api.SCHEMA_PATH.read_text()));return
+        if path.startswith('/api/articles/'):
+            import re
+            ident=path.rsplit('/',1)[-1]
+            if not re.fullmatch(r'[a-f0-9]{24}',ident):
+                self.json_response(400,{'error':'文章 ID 必須是標準 24 字元 ID'});return
+            with self.store.connection() as db:
+                rows=db.execute('SELECT payload FROM articles WHERE id=? ORDER BY provider',(ident,)).fetchall()
+            self.json_response(200 if rows else 404,{'articles':[json.loads(r['payload']) for r in rows]} if rows else {'error':'文章不存在'});return
         if path == '/api/status':
             self.json_response(200, {'schema_version': SCHEMA_VERSION, 'db': self.store.stats(), 'massive_configured': bool(os.environ.get('MASSIVE_API_KEY'))})
             return
@@ -113,7 +129,7 @@ class Handler(BaseHTTPRequestHandler):
             saved = self.store.load_snapshot(path.rsplit('/',1)[-1])
             self.json_response(200 if saved else 404, saved or {'error':'快照不存在'})
             return
-        files = {'/': ('dist/index.html', 'text/html; charset=utf-8'), '/3d-force-graph.min.js': ('dist/3d-force-graph.min.js', 'text/javascript; charset=utf-8'), '/app.js': ('dist/app.js', 'text/javascript; charset=utf-8'), '/graph-view.js': ('dist/graph-view.js', 'text/javascript; charset=utf-8'), '/timeline.js': ('dist/timeline.js', 'text/javascript; charset=utf-8')}
+        files = {'/docs': ('dist/docs.html','text/html; charset=utf-8'), '/docs/': ('dist/docs.html','text/html; charset=utf-8'), '/vendor/swagger-ui-bundle.js': ('dist/vendor/swagger-ui-bundle.js','text/javascript; charset=utf-8'), '/vendor/swagger-ui.css': ('dist/vendor/swagger-ui.css','text/css; charset=utf-8'), '/interaction.js': ('dist/interaction.js','text/javascript; charset=utf-8'), '/date-range.js': ('dist/date-range.js','text/javascript; charset=utf-8'), '/glow.js': ('dist/glow.js','text/javascript; charset=utf-8'), '/i18n.js': ('dist/i18n.js','text/javascript; charset=utf-8'), '/explorer-ui.js': ('dist/explorer-ui.js','text/javascript; charset=utf-8'), '/schema/news-atlas.schema.json': ('schema/news-atlas.schema.json','application/json; charset=utf-8'), '/': ('dist/index.html', 'text/html; charset=utf-8'), '/3d-force-graph.min.js': ('dist/3d-force-graph.min.js', 'text/javascript; charset=utf-8'), '/app.js': ('dist/app.js', 'text/javascript; charset=utf-8'), '/graph-view.js': ('dist/graph-view.js', 'text/javascript; charset=utf-8'), '/timeline.js': ('dist/timeline.js', 'text/javascript; charset=utf-8')}
         if path not in files:
             self.send_error(404)
             return
@@ -134,7 +150,7 @@ class Handler(BaseHTTPRequestHandler):
         self.json_response(200 if removed else 404, {'channels':self.store.list_channels()} if removed else {'error':'自訂 channel 不存在'})
 
     def do_POST(self):
-        if self.path not in ('/api/search', '/api/snapshots', '/api/channels', '/api/classify'):
+        if self.path not in ('/api/search', '/api/search/result', '/api/snapshots', '/api/channels', '/api/classify', *api.POST_PATHS):
             self.send_error(404)
             return
         if self.headers.get('Content-Type', '').split(';')[0].strip() != 'application/json':
@@ -142,9 +158,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            if not 0 < length <= (12000000 if self.path in ('/api/snapshots','/api/classify') else 16384):
+            if not 0 < length <= (12000000 if self.path in ('/api/snapshots','/api/classify',*api.POST_PATHS) else 16384):
                 raise ValueError('搜尋內容大小錯誤')
             body = json.loads(self.rfile.read(length))
+            if not isinstance(body,dict): raise ValueError('Request body 必須是 JSON object')
+            if self.path in api.POST_PATHS:
+                self.json_response(200,api.dispatch(self.path,body,self.store,graph_payload));return
             if self.path == '/api/channels':
                 saved = self.store.save_channel(body)
                 self.json_response(200, {'channel':saved,'channels':self.store.list_channels()})
@@ -167,6 +186,14 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, OverflowError) as exc:
             self.json_response(400, {'error': str(exc) if not isinstance(exc, json.JSONDecodeError) else '無效 JSON'})
             return
+        if self.path=='/api/search/result':
+            graph=None;sources=[];done={}
+            for event in search_events(request,key,self.store):
+                if 'graph' in event: graph=event['graph']
+                if event['type']=='source': sources.append({k:v for k,v in event.items() if k not in ('graph','articles')})
+                if event['type']=='done': done=event
+            self.json_response(200,{'graph':graph,'sources':sources,'db':done.get('db',{}),'elapsed':done.get('elapsed',0),'partial':any(s.get('error') or s.get('cache',{}).get('missing_ranges') for s in sources)})
+            return
         self.send_response(200)
         self.send_header('Content-Type', 'application/x-ndjson; charset=utf-8')
         self.send_header('Cache-Control', 'no-store')
@@ -183,9 +210,9 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     store = Store()
     port = int(os.environ.get('PORT', '8765'))
-    server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+    server = ThreadingHTTPServer(('0.0.0.0', port), Handler)
     server.store = store
-    print(f'News Atlas: http://127.0.0.1:{port}\nSQLite: {store.path}', flush=True)
+    print(f'News Atlas: http://127.0.0.1:{port}\nListening: 0.0.0.0:{port} (LAN: http://<host-ip>:{port})\nSQLite: {store.path}', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

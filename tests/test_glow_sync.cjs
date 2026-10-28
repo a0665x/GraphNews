@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict');
+const glow=require('../dist/glow.js');
+global.document={addEventListener(){},removeEventListener(){},hidden:false};
+global.requestAnimationFrame=()=>1;global.cancelAnimationFrame=()=>{};
+let paints=0,renders=0;const scene={},camera={};const renderer={render(){renders++}};
+const canvas={width:100,height:100,getBoundingClientRect:()=>({width:100,height:100}),getContext:()=>({setTransform(){},clearRect(){paints++}})};
+const graph={renderer:()=>renderer,scene:()=>scene,camera:()=>camera};
+const original=renderer.render;const layer=glow.attach(canvas,()=>({graph,active:false,trace:{nodes:new Map()},config:glow.settings(),colors:{}}));
+layer.refresh();renderer.render(scene,camera);
+assert.equal(paints,1,'Glow must paint in the SAME renderer frame, not a separate RAF');
+assert.equal(renders,1,'Original render must be preserved');layer.dispose();assert.equal(renderer.render,original,'Unhook on disposal');
+console.log('PASS: glow synchronized with WebGL render and clean disposal');

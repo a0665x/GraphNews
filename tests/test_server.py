@@ -223,6 +223,14 @@ class HTTPTests(unittest.TestCase):
         head,data=connection.output.split(b'\r\n\r\n',1)
         return head,data
 
+    def test_explorer_assets_and_schema_are_served(self):
+        for path in ['/i18n.js','/explorer-ui.js','/timeline.js','/date-range.js','/interaction.js','/schema/news-atlas.schema.json']:
+            head,data=self.request('GET',path)
+            self.assertIn(b'200 OK',head)
+            self.assertTrue(data)
+        schema=json.loads(data)
+        self.assertEqual(schema['$defs']['exploration']['properties']['depth']['maximum'],6)
+
     def test_actual_handler_streams_cached_graph_without_socket(self):
         key=search.query_key('massive','TSLA')
         self.store.save('massive',key,[row()],[('2026-01-01','2026-01-04','complete')])

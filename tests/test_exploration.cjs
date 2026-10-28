@@ -1,0 +1,41 @@
+const assert=require('node:assert/strict');
+const view=require('../dist/graph-view.js');
+const edges=[{id:'ab',source:'a',target:'b',weight:.9,scope:'google'},{id:'bc',source:'b',target:'c',weight:.8,scope:'cross'},{id:'cd',source:'c',target:'d',weight:.7,scope:'google'},{id:'ca',source:'c',target:'a',weight:.4,scope:'google'},{id:'be',source:'b',target:'e',weight:.6,scope:'google'}];
+const visible=view.filterEdges(edges,{internalMin:.5,crossMin:.75});
+assert.deepEqual(visible.map(e=>e.id),['ab','bc','cd','be']);
+let path=view.trace(visible,'a',{depth:3,branchLimit:1,pathMin:.5});
+assert.deepEqual([...path.nodes.keys()],['a','b','c','d'],'Three hops should extend from root without cycles');
+assert(Math.abs(path.nodes.get('d').strength-.504)<1e-8);
+assert.deepEqual([...path.edges],['ab','bc','cd']);
+path=view.trace(visible,'a',{depth:3,branchLimit:1,pathMin:.55});
+assert(!path.nodes.has('d'),'Cumulative path threshold stops weaker branches');
+assert(!path.nodes.has('e'),'Branch cap keeps highest-scoring eligible continuation');
+assert.equal(view.trace(visible,'a',{depth:1}).nodes.size,2);
+assert.equal(view.trace(visible,'a',{depth:5,maxNodes:2}).nodes.size,2);
+const timeline=require('../dist/timeline.js');
+const articles=Array.from({length:200},(_,i)=>({id:String(i),title:String(i),published_at:'2026-01-01T12:00:00Z',primary_channel:'chips',source:{provider:'google'}}));
+const layout=timeline.density({articles,relations:[]},[{id:'chips',name:'Chips'}],{start:'2026-01-01',end:'2026-01-07'});
+assert.equal(layout.buckets.length,1);assert.equal(layout.buckets[0].articles.length,200);
+assert(layout.height<250,'Dense channels have bounded height instead of 200 stacked rows');
+console.log('PASS: thresholds, multi-hop paths, cycles, branch and node budgets, dense channel aggregation');
+const zoomed=timeline.density({articles:[...articles,{...articles[0],id:'next',published_at:'2026-01-02T12:00:00Z'}],relations:[]},[{id:'chips',name:'Chips'}],{zoom:2,start:'2026-01-01',end:'2026-01-07'});
+assert.equal(zoomed.buckets[1].x-zoomed.buckets[0].x,152,'Density zoom scales time cells');
+const memory=new Map();global.localStorage={getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v),removeItem:k=>memory.delete(k)};
+const ui=require('../dist/explorer-ui.js');
+const fields=()=>Object.fromEntries(['rememberKey','key','keyStatus','forgetKey'].map(id=>[id,{value:'',addEventListener(k,f){this[k]=f}}]));
+let form=fields();const save=ui.initKey(id=>form[id]);form.key.value='test-only-key';save();
+form=fields();ui.initKey(id=>form[id]);assert.equal(form.key.value,'test-only-key','A new page reuses the remembered key');
+form.rememberKey.checked=false;form.rememberKey.change();assert.equal(ui.read('massiveKey'),null,'Opting out removes stored key');
+form.key.value='test-only-key';form.rememberKey.checked=true;form.key.change();form.forgetKey.onclick();assert.equal(ui.read('massiveKey'),null);
+const i18n=require('../dist/i18n.js');i18n.setLanguage('en');assert.equal(i18n.t('搜尋新聞'),'Search news');assert.equal(i18n.t('延伸 8 個節點 · 最多 3 層 · 每節點 4 分支'),'8 related nodes · Up to 3 hops · 4 branches/node');i18n.setLanguage('zh-Hant');assert.equal(i18n.t('搜尋新聞'),'搜尋新聞');
+console.log('PASS: density zoom, credential reuse/opt-out/forget, language preferences and dynamic messages');
+
+const forest=view.traceMany([{id:'ab',source:'a',target:'b',weight:1},{id:'ac',source:'a',target:'c',weight:.9},{id:'bc',source:'b',target:'c',weight:.9}],['a','b']);
+assert.equal(forest.nodes.get('a').depth,0);assert.equal(forest.nodes.get('b').depth,0);
+assert.equal(forest.edges.has('ab'),false);assert.deepEqual(forest.nodes.get('c').memberships,['a','b']);assert.deepEqual(forest.nodes.get('c').parents,['a','b']);
+
+const robotRows=[{id:'one',title:'NVIDIA robot launch',summary:'Robot platform',symbols:['NVDA'],entities:[],topics:[],channels:[]},{id:'two',title:'Other news',summary:'',symbols:[],entities:[],topics:[],channels:[]}];
+const before=JSON.stringify(robotRows);assert.deepEqual(view.rankRoots(robotRows,'robot',3).roots.map(r=>r.id),['one']);assert.equal(view.rankRoots(robotRows,'absent',3).matched_articles,0);assert.equal(JSON.stringify(robotRows),before,'Ranking never mutates news');
+
+const plurals=[{id:'a',title:'Robots and robotics',summary:''},{id:'b',title:'Unrelated',summary:'',symbols:['ROBOTX']}];
+assert.deepEqual(view.rankRoots(plurals,'robot',3).roots.map(r=>r.id),['a']);assert.equal(view.rankRoots(plurals,'robot',3).roots[0].evidence[0].match,'Robots');
