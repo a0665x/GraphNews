@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 from .model import TICKER, article
+from .regions import edition
 
 MAX_BYTES = 8_000_000
 
@@ -125,11 +126,13 @@ def massive_window(ticker, key, start, end, budget, batch, progress):
     else:
         batch.windows.append((start, end, 'complete'))
 
-def rss_window(provider, query, start, end, budget, batch, progress):
+def rss_window(provider, query, start, end, budget, batch, progress, rss_region=None):
     # Query one extra boundary day, then filter exact UTC publication timestamps locally.
     # Google RSS date operators/indexing have no completeness contract.
-    locale = {'hl': 'zh-TW', 'gl': 'TW', 'ceid': 'TW:zh-Hant'} if provider == 'google' else {'hl': 'en-US', 'gl': 'US', 'ceid': 'US:en'}
-    term = query if provider == 'google' else '(' + query + ') site:finance.yahoo.com'
+    selected=edition(provider,rss_region)
+    locale={'hl':selected['language'],'gl':selected['country'],'ceid':selected['ceid']}
+    site_filter='('+' OR '.join('site:'+site for site in selected['sites'])+')'
+    term=query if provider=='google' else '('+query+') '+site_filter
     before = (dt.date.fromisoformat(end) + dt.timedelta(days=1)).isoformat()
     after = (dt.date.fromisoformat(start) - dt.timedelta(days=1)).isoformat()
     url = 'https://news.google.com/rss/search?' + urllib.parse.urlencode({'q': f'({term}) after:{after} before:{before}', **locale})
@@ -146,28 +149,29 @@ def rss_window(provider, query, start, end, budget, batch, progress):
         row = article(provider, item.findtext('title'), item.findtext('link', ''), item.findtext('pubDate'),
                       source.text if source is not None else '', item.findtext('description', ''))
         if in_range(row, start, end):
-            row['source']['via'] = 'google_news_rss'
+            row['source'].update(via='google_news_rss',country=selected['country'],language=selected['language'])
+            if selected['sites']:row['source']['sites']=selected['sites'][:]
             batch.rows.append(row)
     progress({'phase': 'fetching', 'message': '讀取 RSS', 'requests': budget.used, 'article_ids': list({r['id'] for r in batch.rows})})
     if len(items) >= 100:
         days = (dt.date.fromisoformat(end) - dt.date.fromisoformat(start)).days
         if days > 1:
             mid = (dt.date.fromisoformat(start) + dt.timedelta(days=days // 2)).isoformat()
-            rss_window(provider, query, start, mid, budget, batch, progress)
-            rss_window(provider, query, mid, end, budget, batch, progress)
+            rss_window(provider, query, start, mid, budget, batch, progress, rss_region)
+            rss_window(provider, query, mid, end, budget, batch, progress, rss_region)
         else:
             batch.warnings.append(f'{start} RSS 可能達筆數上限；保留結果但不標為已覆蓋')
     else:
         batch.windows.append((start, end, 'snapshot'))
 
-def acquire(provider, term, key, gaps, progress=lambda _: None):
+def acquire(provider, term, key, gaps, progress=lambda _: None, rss_region=None):
     batch, budget = Batch(), Budget()
     try:
         for start, end in gaps:
             if provider == 'massive':
                 massive_window(term, key, start, end, budget, batch, progress)
             else:
-                rss_window(provider, term, start, end, budget, batch, progress)
+                rss_window(provider, term, start, end, budget, batch, progress, rss_region)
     except SourceError as exc:
         batch.error, batch.error_code, batch.retry_after = str(exc), exc.code, exc.retry_after
     except (ValueError, TypeError, AttributeError):

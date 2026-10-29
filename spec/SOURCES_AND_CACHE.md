@@ -6,8 +6,8 @@
 
 | provider | 取得方式 | 實際限制 |
 | --- | --- | --- |
-| google | Google News RSS，zh-TW／TW | 搜尋索引快照，不保證完整歷史 |
-| yahoo | Google News RSS，en-US／US，`site:finance.yahoo.com` | 不是 Yahoo 官方 API；不涵蓋 `tw.news.yahoo.com` |
+| google | Google News RSS，可選 TW／US／HK／JP／GB | 搜尋索引快照，不保證完整歷史 |
+| yahoo | Google RSS，與 Google 共用所選地區，限制當地 Yahoo 網站 | 不是 Yahoo 官方 API；TW 使用 `tw.news.yahoo.com` |
 | massive | `api.massive.com/v2/reference/news` | 明確 ticker、帳號 key／授權；歷史範圍依帳號 |
 
 取得 `description` 作 summary；不另抓文章全文、不依操作者所在地自動切換新聞語系。NVDA 的查詢不能保證召回每篇 NVIDIA 產品報導。
@@ -22,8 +22,9 @@ UI/API 請求 end 含當日，內部正規化為 UTC `[start, end_exclusive)`。
 
 ## 快取與缺口
 
-鍵包含 provider、adapter／locale version、query：Google `rss-v2:zh-TW:`，Yahoo `rss-v3:en-US:`，Massive `massive-v2:`。改來源範圍／語系要考慮換版本，不可把舊覆蓋用作新來源已讀完的證明。
+UI 明確傳送 `rss_region`（預設 TW），API 省略時保留舊版 Google TW／Yahoo US Finance 行為。鍵包含 provider、adapter／locale version、query：Google TW 沿用 `rss-v2:zh-TW:`，其餘明確地區使用 `rss-v4:<國別>:<語系>:`，舊版未指定 Yahoo 沿用 `rss-v3:en-US:`，Massive `massive-v2:` 不受地區影響。改來源範圍／語系要考慮換版本，不可把舊覆蓋用作新來源已讀完的證明。
 
+- `membership_origins` 以 `(provider,query_key,article_id)` 保存取得時的 source JSON；相同 URL 不同國別不互相覆寫。文章 `origins` 累積全部觀測來源，save 用 BEGIN IMMEDIATE 保護並行合併。
 - `memberships` 決定查詢有哪些文章；不能把同 provider 的全部 DB 混當查詢命中。
 - `coverage` 按 UTC 日保存 `complete` 或 `snapshot`，依成功請求的窗口建立，**不能從文章日期推算覆蓋**。
 - Massive 當時可存取分頁讀完，包括零篇，才可標 complete；不是世界上所有新聞完整。
@@ -40,4 +41,6 @@ UI/API 請求 end 含當日，內部正規化為 UTC `[start, end_exclusive)`。
 4. 確認文章是否已取得，關鍵字是否在標題／摘要；未抓取的全文不能被本地匹配。
 5. 需要特定產品時可用左側產品名稱搜尋取得資料；圖內 Search 不補搜。
 
-Microduck 案例（2026-10-28 查核）：提供的新聞屬台灣 Yahoo；當時本地標題／摘要沒有 Microduck／機器鴨。這是歷史觀察，不是永遠零筆的系統規則。台灣 Yahoo 擴充與全文擷取均尚未實作。
+Microduck 案例（2026-10-28 查核）：提供的新聞屬台灣 Yahoo；當時本地標題／摘要沒有 Microduck／機器鴨。這是歷史觀察，不是永遠零筆的系統規則。目前已支援台灣 Yahoo 地區搜尋；全文擷取仍未實作。
+
+國別對照的單一後端定義：[regions.py](../news_atlas/regions.py)。`source.country/language/sites` 描述索引版本及網域限制，不能當成出版者國籍或文章實際語言；舊快取不捏造缺失欄位。Google News 的[官方語言／地區說明](https://support.google.com/googlenews/answer/7688469?hl=en) 描述選擇概念，但不保證 RSS 的日期完整性或所有國家的可用性。

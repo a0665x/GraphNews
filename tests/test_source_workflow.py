@@ -55,16 +55,29 @@ class SnapshotTests(unittest.TestCase):
                 changed={**self.payload,'view':{**self.payload['view'],'glow':{**self.payload['view']['glow'],key:value}}}
                 with self.assertRaises(ValueError):self.store.save_snapshot(changed)
 
+    def test_sculpted_time_profile_roundtrip_and_validation(self):
+        focus={'enabled':True,'date':'2026-04-01','peak':2,'width':.12,'profile':[1+(i%12) for i in range(129)]}
+        self.payload['view']['time_focus']=focus
+        saved=self.store.save_snapshot(self.payload)
+        self.assertEqual(Store(self.path).load_snapshot(saved['id'])['view']['time_focus'],focus)
+        for invalid in [None,[],[2]*128,[2]*130,[True]*129,[float('inf')]*129,[float('nan')]*129,[.9]*129,[12.1]*129,{'0':2}]:
+            changed={**self.payload,'view':{**self.payload['view'],'time_focus':{**focus,'profile':invalid}}}
+            with self.subTest(profile=str(invalid)[:40]),self.assertRaises(ValueError):
+                self.store.save_snapshot(changed)
+
     def test_time_focus_snapshot_roundtrip_and_validation(self):
-        self.payload['view']['time_focus']={'enabled':True,'date':'2026-04-01'}
+        self.payload['view']['time_focus']={'enabled':True,'date':'2026-04-01','peak':9,'width':.08}
         saved=self.store.save_snapshot(self.payload)
         self.assertEqual(Store(self.path).load_snapshot(saved['id'])['view']['time_focus'],self.payload['view']['time_focus'])
-        for invalid in [{'enabled':'yes'}, {'date':'2026-02-30'}, {'date':12}, {'date':'20260401'}, []]:
+        for invalid in [{'enabled':'yes'}, {'date':'2026-02-30'}, {'date':12}, {'date':'20260401'}, {'peak':13}, {'peak':True}, {'peak':float('nan')}, {'width':0}, {'width':.51}, []]:
             changed={**self.payload,'view':{**self.payload['view'],'time_focus':invalid}}
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):self.store.save_snapshot(changed)
         del self.payload['view']['time_focus']
         legacy=self.store.save_snapshot(self.payload)
         self.assertFalse(self.store.load_snapshot(legacy['id'])['view']['time_focus']['enabled'])
+        self.payload['view']['time_focus']={'enabled':True,'date':'2026-04-01'}
+        old_curve=self.store.save_snapshot(self.payload)
+        self.assertEqual(self.store.load_snapshot(old_curve['id'])['view']['time_focus'],{'enabled':True,'date':'2026-04-01','peak':2,'width':.12})
 
     def test_wrong_source_and_dangling_edges_rejected_atomically(self):
         self.payload['source_graphs']['google']['articles'][0]['source']['provider']='yahoo'

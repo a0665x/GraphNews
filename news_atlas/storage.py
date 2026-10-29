@@ -41,6 +41,9 @@ class Store:
                 CREATE TABLE IF NOT EXISTS memberships (
                     provider TEXT NOT NULL, query_key TEXT NOT NULL, article_id TEXT NOT NULL,
                     PRIMARY KEY(provider,query_key,article_id));
+                CREATE TABLE IF NOT EXISTS membership_origins (
+                    provider TEXT NOT NULL, query_key TEXT NOT NULL, article_id TEXT NOT NULL, source_json TEXT NOT NULL,
+                    PRIMARY KEY(provider,query_key,article_id));
                 CREATE TABLE IF NOT EXISTS coverage (
                     provider TEXT NOT NULL, query_key TEXT NOT NULL, day TEXT NOT NULL,
                     kind TEXT NOT NULL CHECK(kind IN ('complete','snapshot')), checked_at REAL NOT NULL,
@@ -49,6 +52,7 @@ class Store:
                     id INTEGER PRIMARY KEY, provider TEXT NOT NULL, query_key TEXT NOT NULL,
                     start TEXT NOT NULL, end TEXT NOT NULL, checked_at REAL NOT NULL,
                     error_code TEXT, retry_until REAL NOT NULL DEFAULT 0);
+                CREATE INDEX IF NOT EXISTS memberships_article_idx ON memberships(provider,article_id);
                 CREATE INDEX IF NOT EXISTS published_idx ON articles(provider,published_at);
                 CREATE INDEX IF NOT EXISTS attempts_idx ON attempts(provider,retry_until);
                 CREATE TABLE IF NOT EXISTS snapshots (
@@ -62,7 +66,7 @@ class Store:
                     PRIMARY KEY(snapshot_id,scope,edge_id));
                 CREATE TABLE IF NOT EXISTS channels (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, payload TEXT NOT NULL);
-                PRAGMA user_version=3;
+                PRAGMA user_version=4;
             ''')
 
     @contextlib.contextmanager
@@ -91,16 +95,36 @@ class Store:
 
     def read(self, provider, query, start, end):
         with self.connection() as db:
-            rows = db.execute('''SELECT a.payload FROM articles a JOIN memberships m
+            rows = db.execute('''SELECT a.payload,o.source_json FROM articles a JOIN memberships m
                 ON a.provider=m.provider AND a.id=m.article_id
+                LEFT JOIN membership_origins o ON o.provider=m.provider AND o.query_key=m.query_key AND o.article_id=m.article_id
                 WHERE m.provider=? AND m.query_key=? AND a.published_at>=? AND a.published_at<?
                 ORDER BY a.published_at DESC''', (provider, query, start, end)).fetchall()
-        return [json.loads(r['payload']) for r in rows]
+        result=[]
+        for record in rows:
+            row=json.loads(record['payload'])
+            if record['source_json']:row['source']=json.loads(record['source_json'])
+            result.append(row)
+        return result
 
     def save(self, provider, query, rows, windows, now=None):
         now = time.time() if now is None else now
         with self.connection() as db:
-            for row in rows:
+            db.execute('BEGIN IMMEDIATE')
+            for raw in rows:
+                row={**raw}
+                old=db.execute('SELECT payload FROM articles WHERE provider=? AND id=?',(provider,row['id'])).fetchone()
+                origins=list(row.get('origins',[row['source']]))
+                if old:
+                    previous=json.loads(old['payload'])
+                    # Freeze legacy query context before another edition replaces shared payload.
+                    db.execute('INSERT OR IGNORE INTO membership_origins SELECT provider,query_key,article_id,? FROM memberships WHERE provider=? AND article_id=?',
+                               (json.dumps(previous['source'],ensure_ascii=False),provider,row['id']))
+                    for origin in previous.get('origins',[previous['source']]):
+                        if origin not in origins:origins.append(origin)
+                row['origins']=origins
+                db.execute('INSERT INTO membership_origins VALUES(?,?,?,?) ON CONFLICT(provider,query_key,article_id) DO UPDATE SET source_json=excluded.source_json',
+                           (provider,query,row['id'],json.dumps(row['source'],ensure_ascii=False)))
                 db.execute('INSERT INTO articles VALUES(?,?,?,?) ON CONFLICT(provider,id) DO UPDATE SET published_at=excluded.published_at,payload=excluded.payload',
                            (provider, row['id'], row['published_at'], json.dumps(row, ensure_ascii=False)))
                 db.execute('INSERT OR IGNORE INTO memberships VALUES(?,?,?)', (provider, query, row['id']))

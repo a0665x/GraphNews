@@ -3,6 +3,7 @@ import math
 import datetime as dt
 import re
 from .model import canonical_url
+from .regions import validate_region
 
 PROVIDERS = ('google', 'yahoo', 'massive')
 ARTICLE_FIELDS = ('id','title','summary','url','published_at','source','symbols','language','fetched_at','entities','topics','analysis_version','origins','channels','primary_channel','channel_version')
@@ -108,7 +109,18 @@ def validate_snapshot(body):
         if not isinstance(focus_date,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}',focus_date):
             raise ValueError('時間大小焦點日期格式錯誤')
         focus_date=dt.date.fromisoformat(focus_date).isoformat()
-    time_focus={'enabled':time_focus.get('enabled',True),'date':focus_date}
+    curve={}
+    for key,default,low,high in [('peak',2,1,12),('width',.12,.01,.5)]:
+        value=time_focus.get(key,default)
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not low<=value<=high:
+            raise ValueError('時間鐘形曲線設定超出範圍')
+        curve[key]=value
+    if 'profile' in time_focus:
+        profile=time_focus['profile']
+        if not isinstance(profile,list) or len(profile)!=129 or any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or not 1<=v<=12 for v in profile):
+            raise ValueError('時間塑形曲線必須包含 129 個 1–12 倍的有限數值')
+        curve['profile']=profile[:]
+    time_focus={'enabled':time_focus.get('enabled',True),'date':focus_date,**curve}
     focus=view.get('focus',{'mode':'overview','root_ids':[],'query':'','limit':3})
     if not isinstance(focus,dict): raise ValueError('無效 focus')
     root_ids=focus.get('root_ids',[]);focus_mode=focus.get('mode','overview');query=focus.get('query','');limit=focus.get('limit',3)
@@ -118,8 +130,10 @@ def validate_snapshot(body):
     search = body.get('search', {})
     if not isinstance(search,dict):
         raise ValueError('搜尋資訊格式錯誤')
+    rss_region=validate_region(search.get('rss_region'))
     # Never persist credentials, request headers or arbitrary form fields.
     search = {k: str(search[k])[:200] for k in ('query','ticker','start','end') if k in search}
+    if rss_region is not None:search['rss_region']=rss_region
     return {'name': str(body.get('name') or search.get('query') or search.get('ticker') or '新聞圖譜')[:120],
             'search': search, 'view': {'sources': sources, 'separate': view['separate'], 'positions': positions, 'mode':mode, 'channel_filter':channel_filter, 'cutoff':cutoff, 'timeline_zoom':zoom, 'channel_definitions':frozen_defs, 'timeline_style':timeline_style, 'exploration':exploration, 'glow':normalized_glow, 'focus':focus, 'time_focus':time_focus},
             'source_graphs': normalized, 'cross_relations': cross}

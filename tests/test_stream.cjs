@@ -15,7 +15,7 @@ const article={id:'one',title:'Tesla launches product',source:{provider:'massive
 let finish;const wait=new Promise(resolve=>finish=resolve);let reads=0;
 const document={getElementById:get,createElement:()=>new Element(),createElementNS:()=>new Element(),querySelectorAll:()=>[{value:'massive'},{value:'google'}],body:new Element()};
 const context={document,ForceGraph3D:()=>()=>graph,ResizeObserver:class{observe(){}},console,Date,URL,Blob,TextDecoder,TextEncoder,Uint8Array,AbortController,setTimeout:(fn,ms)=>ms===80?setTimeout(fn,0):0,clearTimeout(){},setInterval:()=>0,clearInterval(){},fetch:async()=>({ok:true,body:{getReader:()=>({read:async()=>{reads++;if(reads===1)return {value:new TextEncoder().encode(JSON.stringify({type:'source',source:'massive',completed:1,total:2,articles:[article],error:null})+'\n'),done:false};await wait;return {value:new TextEncoder().encode(JSON.stringify({type:'done'})+'\n'),done:reads>2}},cancel(){}})}})};
-vm.createContext(context);vm.runInContext(fs.readFileSync('dist/i18n.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/explorer-ui.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/graph-view.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/timeline.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/glow.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/date-range.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/interaction.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/app.js','utf8'),context);
+vm.createContext(context);vm.runInContext(fs.readFileSync('dist/i18n.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/explorer-ui.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/graph-view.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/timeline.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/glow.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/date-range.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/interaction.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/time-lens.js','utf8'),context);vm.runInContext(fs.readFileSync('dist/app.js','utf8'),context);
 (async()=>{
   get('start').value='2026-01-01';get('end').value='2026-01-07';
   const pending=get('form').handlers.submit({preventDefault(){}});
@@ -86,11 +86,11 @@ vm.createContext(context);vm.runInContext(fs.readFileSync('dist/i18n.js','utf8')
   assert.equal(vm.runInContext('focusRoot()',context),null);
   const beforeTime=data.nodes;
   get('timeSizeEnabled').checked=true;get('timeFocusSlider').value=0;get('timeSizeEnabled').onchange();
-  assert.equal(vm.runInContext('nodeValue(articles[0])',context),24,'Focus day doubles radius (8x volume)');
+  assert.equal(vm.runInContext('AtlasTimeline.timeScale(articles[0],timeFocus,timelineBounds)',context),2,'Focus day doubles radius');
   get('timeFocusSlider').value=6;get('timeFocusSlider').oninput();
-  assert(vm.runInContext('nodeValue(articles[0])',context)<4);
+  assert(vm.runInContext('AtlasTimeline.timeScale(articles[0],timeFocus,timelineBounds)',context)<1.1);
   assert.equal(data.nodes,beforeTime,'Date lens never replaces graph objects');assert.equal(data.nodes[0].x,57);
-  get('timeSizeEnabled').checked=false;get('timeSizeEnabled').onchange();assert.equal(vm.runInContext('nodeValue(articles[0])',context),3);
+  get('timeSizeEnabled').checked=false;get('timeSizeEnabled').onchange();assert.equal(vm.runInContext('AtlasTimeline.timeScale(articles[0],timeFocus,timelineBounds)',context),1);
   vm.runInContext("showArticle(articles[0]);switchMode('timeline');timelineCutoff='2025-12-31';rebuild();",context);
   // An empty channel keeps global root state and complete snapshot data.
   vm.runInContext("basePayload.channel_definitions=[{id:'empty',name:'Empty'}];channelFilter='empty';rebuild();",context);
@@ -98,11 +98,14 @@ vm.createContext(context);vm.runInContext(fs.readFileSync('dist/i18n.js','utf8')
   assert.equal(vm.runInContext('focusRoot()',context),'one','Hidden root is retained through channel filtering');
   assert.equal(vm.runInContext('savedPayload().source_graphs.massive.articles.length',context),1);
   assert.equal(vm.runInContext('savedPayload().view.time_focus.enabled',context),false);
+  vm.runInContext('updateTimeCurve({peak:9,width:.06})',context);
+  assert.equal(vm.runInContext('savedPayload().view.time_focus.peak',context),9);
   const filteredSnapshot=vm.runInContext('savedPayload()',context);
   context.fetch=async()=>({ok:true,json:async()=>({...filteredSnapshot,id:'saved',name:'Hidden root'})});
   await vm.runInContext("restoreSnapshot('saved')",context);
   assert.equal(vm.runInContext('focusRoot()',context),'one','Filtered snapshot restores hidden root');
   assert.equal(vm.runInContext('articles.length',context),0);
+  assert.equal(vm.runInContext('timeFocus.peak',context),9);assert.equal(vm.runInContext('timeFocus.width',context),.06);
   get('modeNetwork').onclick();assert.equal(vm.runInContext('focusRoot()',context),'one');assert.equal(data.nodes.length,1);
   console.log('PASS: offline runtime search, zero-match preservation, Enter isolation, locked roots; live stream, source toggles, progress composition, grouping, timeline mode, position continuity and save payload');
 })().catch(e=>{finish();console.error(e);process.exitCode=1});

@@ -143,6 +143,22 @@
         },
         "via": {
           "type": "string"
+        },
+        "country": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "Requested RSS country/region edition, not publisher nationality or event location. Absent for unknown historical context or Massive."
+        },
+        "language": {
+          "type": "string",
+          "description": "Requested feed edition language; does not claim article language detection."
+        },
+        "sites": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Domain restriction used for the Yahoo edition."
         }
       }
     },
@@ -520,6 +536,31 @@
           ],
           "format": "date",
           "description": "UTC focus date, clamped to the loaded graph search date range by the UI."
+        },
+        "peak": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 12,
+          "default": 2,
+          "description": "Base Gaussian radius multiplier when profile is absent. The maximum profile gain controls depth compensation when a sculpted profile is present; compensation ramps from 2x to full at 8x."
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 0.5,
+          "default": 0.12,
+          "description": "Gaussian sigma as a fraction of the date range, with a minimum effective width of one day."
+        },
+        "profile": {
+          "type": "array",
+          "minItems": 129,
+          "maxItems": 129,
+          "items": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "description": "Optional sculpted radius multipliers at 129 equally spaced offsets from -1 to +1 relative to the focus date, in units of the loaded date span (minimum one day). Log-linear interpolation, baseline 1 outside that range. Overrides peak/width; moves with the focus date. Omit to use the legacy Gaussian."
         }
       },
       "additionalProperties": false

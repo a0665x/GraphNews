@@ -9,7 +9,7 @@
 - `/api/schema` 與 `/schema/news-atlas.schema.json`：canonical JSON Schema。
 - `/api/status` 與 `/api/capabilities`：DB／功能資訊，不回傳 key。
 
-目前 20 個 API 操作，分為新聞（串流／單 JSON 搜尋、唯讀快取、article observations）、純圖譜轉換（normalize/build/filter/explore/timeline）、channels/classify、snapshots/view validate。實際 dispatch 在 [server.py](../server.py)、[api.py](../news_atlas/api.py)。
+目前 22 個 API 操作，分為新聞（串流／單 JSON 搜尋、唯讀快取、article observations）、純圖譜轉換（normalize/build/filter/explore/timeline）、channels/classify、snapshots/view validate。實際 dispatch 在 [server.py](../server.py)、[api.py](../news_atlas/api.py)。
 
 ## 合約要點
 
@@ -26,3 +26,5 @@ POST 需 application/json。一般 body 上限 16384 bytes；snapshots、classif
 OpenAPI operationId 與 x-mcp annotations 提供候選 tools 提示，但**目前沒有 MCP server transport**。包裝時保留只讀、寫 DB、刪自訂分類及外連的差異；單 JSON 搜尋適合不處理 NDJSON 的 client。REST 不遠端控制已開頁面的 DOM／相機／瀏覽器 localStorage。公開 gateway 需另有認證與授權設計。
 
 增加 API 時同步 server 路由、api dispatch、OpenAPI request/response、驗證測試；涉及 schema 改動再更新 canonical schema 與舊快照相容性。不要只改 Swagger 畫面而未實作路由。
+
+`POST /api/settings/massive-key`（key writeOnly）與 DELETE 用於主機明確記住／忘記，僅回 configured。SearchRequest／快照 metadata 支援 rss_region；`/api/capabilities` 提供 regions 對照。完整 OpenAPI 現有 22 個 operationId。

@@ -4,6 +4,7 @@ import threading
 from .model import TICKER, deduplicate
 from .providers import acquire
 from .storage import Store, dates
+from .regions import validate_region,edition
 
 _LOCKS = [threading.Lock() for _ in range(32)]
 
@@ -31,21 +32,25 @@ def normalize_request(body, today=None):
         raise ValueError('日期需為過去至今天，且一次不超過 366 天')
     if not isinstance(body.get('force_refresh', False), bool):
         raise ValueError('force_refresh 必須是布林值')
-    return {'query': query, 'ticker': ticker, 'sources': sources, 'start': start.isoformat(),
+    return {'rss_region':validate_region(body.get('rss_region')),'query': query, 'ticker': ticker, 'sources': sources, 'start': start.isoformat(),
             'end': (last + dt.timedelta(days=1)).isoformat(), 'display_end': last.isoformat(),
             'force_refresh': body.get('force_refresh', False)}
 
-def query_key(provider, term):
+def query_key(provider, term, rss_region=None):
     # Include adapter/locale version so changing retrieval semantics invalidates coverage.
+    validate_region(rss_region)
+    if provider!='massive' and rss_region is not None and not (provider=='google' and rss_region=='TW'):
+        selected=edition(provider,rss_region)
+        return f"rss-v4:{rss_region}:{selected['language']}:"+term.strip()
     return ('rss-v2:zh-TW:' if provider == 'google' else 'rss-v3:en-US:' if provider == 'yahoo' else 'massive-v2:') + (term.strip() if provider in ('google', 'yahoo') else term.upper())
 
-def search_source(source, query, ticker, key, start=None, end=None, store=None, force_refresh=False, progress=lambda _: None):
+def search_source(source, query, ticker, key, start=None, end=None, store=None, force_refresh=False, progress=lambda _: None, rss_region=None):
     store = store or Store()
     today = dt.datetime.now(dt.timezone.utc).date()
     start = start or (today - dt.timedelta(days=6)).isoformat()
     end = end or (today + dt.timedelta(days=1)).isoformat()
     term = ticker if source == 'massive' else query
-    cache_key = query_key(source, term)
+    cache_key = query_key(source, term, rss_region)
     # Avoid duplicate concurrent fills for the same source/query, including overlapping dates.
     lock = _LOCKS[hash((str(store.path), source, cache_key)) % len(_LOCKS)]
     progress('檢查本地 DB／等待同查詢補抓')
@@ -67,7 +72,7 @@ def search_source(source, query, ticker, key, start=None, end=None, store=None, 
                     ids = set(message.pop('article_ids', []))
                     message.update(cached=len(old_ids), new=len(ids - old_ids), total=len(old_ids | ids))
                 progress(message)
-            batch = acquire(source, term, key, gaps, report)
+            batch = acquire(source, term, key, gaps, report, **({'rss_region':rss_region} if rss_region is not None else {}))
             # Persist good pages even if a later page failed; only known windows become covered.
             store.save(source, cache_key, batch.rows, batch.windows)
             error, code, retry, warnings, requests = batch.error, batch.error_code, batch.retry_after, batch.warnings, batch.requests
@@ -78,7 +83,7 @@ def search_source(source, query, ticker, key, start=None, end=None, store=None, 
         snapshot_days = sum(c['kind'] == 'snapshot' for c in coverage)
         if source != 'massive':
             warnings.insert(0, 'RSS 是來源索引快照，不保證該日期區間全部新聞已收錄')
-        return {'source': source, 'articles': rows, 'error': error, 'error_code': code, 'retry_after': retry,
+        return {'source': source, 'rss_region':edition(source,rss_region)['country'] if source!='massive' else None,'articles': rows, 'error': error, 'error_code': code, 'retry_after': retry,
                 'warnings': warnings, 'cache': {'existing_articles': len(existing), 'returned_articles': len(rows),
                     'new_articles': len({r['id'] for r in rows} - {r['id'] for r in existing}),
                     'network_requests': requests, 'reused': not gaps, 'complete_days': complete_days,

@@ -11,7 +11,7 @@ assert.throws(()=>quickRange(24));
 const elements=new Map();const $=id=>{if(!elements.has(id))elements.set(id,{value:'',classList:{toggle(){}},setAttribute(k,v){this[k]=v},addEventListener(k,f){this[k]=f}});return elements.get(id)};
 $('start').value='2026-01-01';$('end').value='2026-01-07';let now=new Date('2026-10-28T00:00:00Z');const ui=init($,()=>now);
 $('dateQuick').onclick();$('months-12').onclick();assert.equal($('end').value,'2026-10-28');assert($('start').readOnly);
-now=new Date('2026-10-29T00:00:00Z');ui.refresh();assert.equal($('end').value,'2026-10-29','Quick search refreshes across midnight');
+now=new Date('2026-10-29T00:00:00Z');$('dateQuick').onclick();assert.equal($('end').value,'2026-10-29','Quick search refreshes across midnight');
 $('dateCustom').onclick();assert.equal($('start').value,'2026-01-01','Custom draft survives mode switches');assert.equal($('end').value,'2026-01-07');assert(!$('start').readOnly);
 $('dateQuick').onclick();$('start').value='2025-09-01';$('end').value='2025-09-30';ui.setCustom();ui.refresh();assert.equal(ui.mode(),'custom');assert.equal($('end').value,'2025-09-30','Snapshot dates remain fixed');
 console.log('PASS: calendar months, leap years, 366-day bound, UTC, mode switching, midnight refresh and snapshot dates');

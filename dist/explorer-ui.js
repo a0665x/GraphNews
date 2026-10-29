@@ -14,12 +14,22 @@
     }
     container.replaceChildren();for(const [k,v] of Object.entries(value))container.append(field(k,v));
   }
-  function initKey($){
+  function initKey($,{persist=()=>{},forget=()=>{}}={}){
     $('rememberKey').checked=read('rememberKey',true);if($('rememberKey').checked)$('key').value=read('massiveKey','');
-    function save(){const remember=$('rememberKey').checked;write('rememberKey',remember);const ok=write('massiveKey',remember&&$('key').value.trim()?$('key').value.trim():null);$('keyStatus').textContent=!ok?'瀏覽器儲存不可用；此 key 僅供本次使用。':remember&&$('key').value.trim()?'已記住此瀏覽器的 key。':'';}
-    $('key').addEventListener('input',save);$('key').addEventListener('change',save);$('rememberKey').addEventListener('change',save);
-    $('forgetKey').onclick=()=>{$('key').value='';const ok=write('massiveKey',null);$('keyStatus').textContent=ok?'已清除瀏覽器保存的 key。':'無法清除本機儲存；請使用瀏覽器網站資料設定清除。';};
-    return save;
+    let lastSent='',pending=Promise.resolve();
+    const enqueue=fn=>(pending=pending.catch(()=>{}).then(fn));
+    function save(remote=true){
+      const remember=$('rememberKey').checked,value=$('key').value.trim();write('rememberKey',remember);
+      // Empty transient fields never erase a recorded key; only explicit forget/opt-out does.
+      const ok=!remember?write('massiveKey',null):value?write('massiveKey',value):true;
+      if(!ok)$('keyStatus').textContent='瀏覽器儲存不可用；此 key 僅供本次使用。';else if(remember&&(value||read('massiveKey','')))$('keyStatus').textContent='已記住金鑰；重新整理會沿用。';else if(!remember)$('keyStatus').textContent='';
+      if(remote&&remember){const key=value||read('massiveKey','');if(key&&key!==lastSent){lastSent=key;enqueue(()=>persist(key)).catch(()=>{lastSent='';$('keyStatus').textContent='金鑰仍在此瀏覽器；伺服器保存失敗，請重試。';});}}
+      return ok;
+    }
+    $('key').addEventListener('input',()=>save(false));$('key').addEventListener('change',()=>save());
+    $('rememberKey').addEventListener('change',()=>{save(false);if(!$('rememberKey').checked){lastSent='';enqueue(forget).catch(()=>{$('keyStatus').textContent='伺服器金鑰清除失敗，請重試。';});}else save();});
+    $('forgetKey').onclick=()=>{$('key').value='';lastSent='';const ok=write('massiveKey',null);$('keyStatus').textContent=ok?'已清除瀏覽器保存的 key。':'無法清除本機儲存；請使用瀏覽器網站資料設定清除。';enqueue(forget).catch(()=>{$('keyStatus').textContent='伺服器金鑰清除失敗，請重試。';});};
+    save();return save;
   }
   // Editable search draft is separate from acquired graph/snapshot metadata.
   function initSearch($,dates){
@@ -27,37 +37,42 @@
     if(saved&&typeof saved==='object'){
       for(const [id,max]of [['query',200],['ticker',20]])if(typeof saved[id]==='string')$(id).value=saved[id].slice(0,max);
       if(Array.isArray(saved.sources)&&saved.sources.every(p=>providers.includes(p)))for(const p of providers)$('source-'+p).checked=saved.sources.includes(p);
+      if(['TW','US','HK','JP','GB'].includes(saved.rss_region))$('rssRegion').value=saved.rss_region;
       if(typeof saved.forceRefresh==='boolean')$('forceRefresh').checked=saved.forceRefresh;
       dates.restore(saved.dates);
     }
     function save(){
-      const draft={query:$('query').value,ticker:$('ticker').value,sources:providers.filter(p=>$('source-'+p).checked),forceRefresh:$('forceRefresh').checked===true,dates:dates.state()};
+      const draft={rss_region:$('rssRegion').value||'TW',query:$('query').value,ticker:$('ticker').value,sources:providers.filter(p=>$('source-'+p).checked),forceRefresh:$('forceRefresh').checked===true,dates:dates.state()};
       const ok=write('searchDraft',draft);$('searchDraftStatus').textContent=ok?'搜尋設定已自動保存在此瀏覽器。':'瀏覽器儲存不可用；重新整理後無法保留搜尋設定。';return ok;
     }
-    for(const id of ['query','ticker','forceRefresh',...providers.map(p=>'source-'+p)])for(const event of ['input','change'])$(id).addEventListener(event,save);
+    for(const id of ['query','ticker','rssRegion','forceRefresh',...providers.map(p=>'source-'+p)])for(const event of ['input','change'])$(id).addEventListener(event,save);
     dates.onChange(save);save();return save;
   }
-  function initSourcePanel($){
-    const panel=$('sourcePanel'),body=$('sourcePanelBody'),handle=$('sourcePanelDrag'),toggle=$('sourcePanelToggle'),stage=$('stage');
-    const saved=read('sourcePanel',{});let x=Number(saved?.x)||0,y=Number(saved?.y)||0,collapsed=saved?.collapsed===true,drag=null;
-    const persist=()=>write('sourcePanel',{x,y,collapsed});
+  function initFloatingPanel($,{key,panelId,bodyId,handleId,toggleId,resetId,onChange=()=>{}}){
+    const panel=$(panelId),body=$(bodyId),handle=$(handleId),toggle=$(toggleId),stage=$('stage');
+    const saved=read(key,{});let x=Number(saved?.x)||0,y=Number(saved?.y)||0,collapsed=saved?.collapsed===true,drag=null,suppressClick=false;
+    const persist=()=>write(key,{x,y,collapsed});
     function constrain(){
       const area=stage.getBoundingClientRect(),rect=panel.getBoundingClientRect(),baseX=rect.left-x,baseY=rect.top-y;
       x=Math.max(area.left-baseX,Math.min(area.right-baseX-rect.width,x));
       y=Math.max(area.top-baseY,Math.min(area.bottom-baseY-Math.min(rect.height,area.height),y));
-      panel.style.transform=`translate(${x}px,${y}px)`;
+      panel.style.transform=`translate(${x}px,${y}px)`;onChange();
     }
-    function paint(){body.hidden=collapsed;panel.classList.toggle('collapsed',collapsed);toggle.setAttribute('aria-expanded',String(!collapsed));toggle.textContent=collapsed?'展開':'收合';panel.style.transform=`translate(${x}px,${y}px)`;constrain();}
-    toggle.onclick=()=>{collapsed=!collapsed;paint();persist();};
-    $('sourcePanelReset').onclick=()=>{x=0;y=0;panel.style.transform='';persist();};
-    handle.addEventListener('pointerdown',e=>{if(e.button!==0)return;drag={id:e.pointerId,cx:e.clientX,cy:e.clientY,x,y};handle.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();});
-    handle.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;x=drag.x+e.clientX-drag.cx;y=drag.y+e.clientY-drag.cy;panel.style.transform=`translate(${x}px,${y}px)`;constrain();});
-    const end=e=>{if(!drag||drag.id!==e.pointerId)return;drag=null;if(handle.hasPointerCapture?.(e.pointerId))handle.releasePointerCapture(e.pointerId);persist();};
+    function paint(){body.hidden=collapsed;panel.classList.toggle('collapsed',collapsed);toggle.setAttribute('aria-expanded',String(!collapsed));handle.setAttribute('aria-expanded',String(!collapsed));panel.style.transform=`translate(${x}px,${y}px)`;constrain();}
+    function fold(){const before=panel.getBoundingClientRect();collapsed=!collapsed;paint();const after=panel.getBoundingClientRect();x+=before.left-after.left;y+=before.top-after.top;panel.style.transform=`translate(${x}px,${y}px)`;constrain();persist();}
+    toggle.onclick=fold;
+    $(resetId).onclick=()=>{x=0;y=0;panel.style.transform='';persist();onChange();};
+    handle.onclick=e=>{if(suppressClick&&e?.detail!==0){suppressClick=false;return;}if(collapsed)fold();};
+    handle.addEventListener('pointerdown',e=>{if(e.button!==0)return;drag={id:e.pointerId,cx:e.clientX,cy:e.clientY,x,y,moved:false};handle.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();});
+    handle.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;drag.moved ||= Math.hypot(e.clientX-drag.cx,e.clientY-drag.cy)>4;x=drag.x+e.clientX-drag.cx;y=drag.y+e.clientY-drag.cy;panel.style.transform=`translate(${x}px,${y}px)`;constrain();});
+    const end=e=>{if(!drag||drag.id!==e.pointerId)return;suppressClick=drag.moved;if(suppressClick)setTimeout(()=>{suppressClick=false;},0);drag=null;if(handle.hasPointerCapture?.(e.pointerId))handle.releasePointerCapture(e.pointerId);persist();};
     for(const event of ['pointerup','pointercancel','lostpointercapture'])handle.addEventListener(event,end);
     handle.addEventListener('keydown',e=>{const delta={ArrowLeft:[-20,0],ArrowRight:[20,0],ArrowUp:[0,-20],ArrowDown:[0,20]}[e.key];if(!delta)return;e.preventDefault();x+=delta[0];y+=delta[1];panel.style.transform=`translate(${x}px,${y}px)`;constrain();persist();});
-    if(typeof ResizeObserver!=='undefined')new ResizeObserver(constrain).observe(stage);
-    paint();return {constrain};
+    if(typeof ResizeObserver!=='undefined'){const observer=new ResizeObserver(constrain);observer.observe(stage);observer.observe(panel);}
+    paint();return {constrain,state:()=>({x,y,collapsed})};
   }
+  const initSourcePanel=$=>initFloatingPanel($,{key:'sourcePanel',panelId:'sourcePanel',bodyId:'sourcePanelBody',handleId:'sourcePanelDrag',toggleId:'sourcePanelToggle',resetId:'sourcePanelReset'});
+  const initTimePanel=($,onChange)=>initFloatingPanel($,{key:'timePanel',panelId:'timeFocusBar',bodyId:'timeFocusBody',handleId:'timePanelDrag',toggleId:'timePanelToggle',resetId:'timePanelReset',onChange});
   function initResize($,onResize){
     if(!document.documentElement?.style)return;
     const style=document.documentElement.style;
@@ -74,5 +89,5 @@
     }
     window.addEventListener('resize',()=>{for(const side of ['left','right'])apply(side,widths[side]);});
   }
-  const api={read,write,jsonTree,initKey,initSearch,initSourcePanel,initResize};root.AtlasUI=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
+  const api={read,write,jsonTree,initKey,initSearch,initFloatingPanel,initSourcePanel,initTimePanel,initResize};root.AtlasUI=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(globalThis);

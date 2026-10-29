@@ -17,28 +17,44 @@
    cd GraphNews
    ```
 
-2. 確認 Python 版本並啟動：
+2. Linux／macOS／WSL：確認 Python 版本並開啟互動選單：
 
    ```bash
    python3 --version
-   python3 server.py
+   ./run.sh
    ```
 
-3. 在瀏覽器開啟 http://127.0.0.1:8765，保持終端執行。停止服務按 `Ctrl+C`；下次在同一目錄重新執行 `python3 server.py` 即可讀取既有 DB。
+3. 使用 **←／→** 選擇 `Local` 或 `Tailscale HTTPS`，按 **Enter**。接著選擇本機 HTTP port（預設 8765）；被占用的 port 會略過並列出可用候選。也可選「自訂輸入」。Tailscale 模式會再選 HTTPS port（預設 8443），兩個 port 各自顯示。
+4. 最後選「啟動」並按 **Enter**，等待服務就緒後開啟終端顯示的 `URL`。選「重新設定」可返回，`q`／Esc／Ctrl+C 可取消。啟動後按 `Ctrl+C` 停止；下次重跑仍使用既有 DB。
 
-Windows 可將上述 `python3` 換成 `py -3`。
+Local URL 是 `http://127.0.0.1:選定port`，同網路手機可使用主機區網 IP。Tailscale URL 是 `https://主機.tailnet.ts.net:選定HTTPSport`；由已登入的 Tailscale 狀態取得實際名稱，透過 [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve) 提供 HTTPS，裝置須連入同一 tailnet。本機後端在此模式只監聽 `127.0.0.1`。首次使用可能需依 Tailscale 提示開啟 HTTPS／完成權限設定。
 
-開啟 http://127.0.0.1:8765。修改程式後重啟 server 並重新整理頁面。不要直接開啟 HTML。圖譜使用內附 3d-force-graph 1.80.1，需要 WebGL；若 3D 無法啟動，搜尋與清單仍可使用。
+`run.sh` 的 Serve 跟隨本次程序執行，停止時只終止本次子程序，不重設或關閉其他 Serve 設定；既有 Serve／Funnel port 會排除在候選外。沒有建立 Docker 網路。若設定與實際綁定之間 port 被搶先占用，互動模式會重新選擇，不會終止占用者。
+
+可預選設定，或在自動化中精確指定：
+
+```bash
+./run.sh --port 9000
+./run.sh --mode tailscale --port 9000 --https-port 8444
+./run.sh --non-interactive --mode local --port 9000
+./run.sh --help
+```
+
+互動模式中參數是預選值，仍能左右切換；非互動模式遇到占用或錯誤會直接退出，不會偷偷更換 port。也支援 `PORT=9000 ./run.sh`。可從任意目錄執行腳本，DB 路徑維持專案的 `data/`，`NEWS_ATLAS_DB`／`MASSIVE_API_KEY` 環境設定繼續有效。
+
+要直接啟動預設服務仍可執行 `python3 server.py`；Windows 原生終端可用 `py -3 server.py`，左右鍵啟動選單則在 WSL 使用。
+
+依啟動器列出的 URL 開啟服務（直接啟動預設為 http://127.0.0.1:8765）。修改程式後重啟 server 並重新整理頁面。不要直接開啟 HTML。圖譜使用內附 3d-force-graph 1.80.1，需要 WebGL；若 3D 無法啟動，搜尋與清單仍可使用。
 
 - Google／Yahoo 使用關鍵字，不會把大寫詞或公司名稱自動轉換成股票代碼。Massive 只使用明確填寫的股票代碼，先過濾不合法格式；混合搜尋未填代碼時會略過 Massive，不阻止免費來源。
 - 日期設定提供「自訂日期／快速區間」滑塊切換。自訂模式預設最近 7 天，可手動指定 UTC 起迄日；快速模式提供 3／6／9／12 個月，以今天（UTC）為結束日，開始搜尋時重新計算，避免頁面跨日後使用舊日期。結束日包含在內，單次最多 366 天。
 - 快速區間按日曆月回推，月底以目標月份最後一天為準；起日使用回推日的次日，讓整段含結束日的區間不超過 366 天。例如 2026-10-28 的近 3 個月為 2026-07-29 至 2026-10-28。切回自訂會還原先前手填日期；載回快照只恢復圖譜與其時間資訊，不覆寫左側正在編輯的搜尋日期。
 - 366 天是本程式的單次查詢限制，不是所有來源的歷史保存上限。Massive 新聞的授權範圍依方案而異，參見 [官方歷史新聞說明](https://massive.com/knowledge-base/article/how-far-back-does-massives-news-and-sentiment-data-go)。Google／Yahoo RSS 不保證完整歷史；快速區間不保證全量取得，長區間仍受來源授權、分頁及每次請求預算限制，請查看每個來源的覆蓋／缺口狀態。
-- Massive key 可在畫面填入，或於伺服器環境設定 `MASSIVE_API_KEY`。欄位旁的「?」可開啟取得方式說明，並直接連到 [Massive Dashboard](https://massive.com/dashboard)；註冊／登入後複製 API key 貼回欄位即可。預設勾選「記住此瀏覽器的 Massive key」後，Key 會存入目前網站的瀏覽器 `localStorage`，重新開啟時自動帶入。這不是加密憑證庫；取消勾選或按「清除已記住的 key」可移除保存值。Key 不寫入新聞 DB、日誌或匯出檔。伺服器環境的 Key 不會回傳給瀏覽器。
+- Massive key 可在畫面填入，或使用 `MASSIVE_API_KEY`。旁邊「?」連到 [Massive Dashboard](https://massive.com/dashboard)。預設「記住 Massive key」會保存在瀏覽器及主機 `data/private/<DB檔名>.massive-key`（目錄 0700／檔案 0600，非加密憑證庫）。重啟、換 port 或從其他網址連回同一主機，可由後端沿用；不回傳金鑰內容、不寫新聞 DB／日誌／快照／匯出。暫時清空欄位不刪記錄；取消記住或按「忘記」才清除保存值，環境變數另由主機管理。優先序：本次明確輸入 → 主機保存值 → 環境變數。
 - 一個來源完成就更新圖譜，不等待其他來源。進度條顯示已完成來源比例（不是虛構下載百分比）；每個來源各一列，隨分頁即時更新「DB／新增／合計」。組成條以來源顏色區分，條紋是 DB 既有、實色是本次新增。錯誤與覆蓋細節可展開查看；HTTP 429 會依 Retry-After 暫停再請求。
 - 「停止等待」中止瀏覽器等待；已開始的伺服器補抓可能繼續完成並寫入 DB。
 
-服務預設監聽 `0.0.0.0:8765`，主機本身仍可開啟 `http://127.0.0.1:8765`。同網路的手機請使用 `http://主機的網路IP:8765`，不要輸入 `0.0.0.0`；主機 IP 可用 `ip -4 -brief address` 查詢。若有防火牆，需允許該網路連入 TCP 8765。修改程式後須重啟服務才會生效。
+直接啟動／Local 模式預設監聽 `0.0.0.0:8765`（可改 port），主機本身仍可開啟 `http://127.0.0.1:8765`。同網路的手機請使用 `http://主機的網路IP:8765`，不要輸入 `0.0.0.0`；主機 IP 可用 `ip -4 -brief address` 查詢。若有防火牆，需允許該網路連入 TCP 8765。修改程式後須重啟服務才會生效。
 
 `PORT` 可修改 HTTP 連接埠。這是受信任區域網路／tailnet 的共用資料服務，不提供多使用者帳號隔離。
 
@@ -92,9 +108,11 @@ Windows 可將上述 `python3` 換成 `py -3`。
 
 圖譜底部新增日期滑桿，左側是最舊日期、右側是最新日期，範圍來自本次已載入新聞的搜尋日期；12 個月區間以月份標記。未送出的左側日期草稿不改動既有圖譜的時間範圍，執行新搜尋後會同步。
 
-拖動滑桿會即時放大接近焦點日期的新聞，最接近者半徑最高為原本 2 倍，越遠逐漸回到原大小；未知日期維持原大小。設定中的「依時間距離調整節點大小」可關閉。這不篩掉新聞、不改關聯分數／位置／視角，也不重新呼叫 API。逐篇時間軸也會調整圓點大小；密度格仍以篇數顯示。吸附範圍會依實際節點大小與相機縮放調整。
+拖動滑桿會即時放大接近焦點日期的新聞，預設最接近者半徑為原本 2 倍，越遠逐漸回到原大小；未知日期不套用日期增益。底部「曲線塑形」直接顯示各日期的尺寸增益：把滑鼠移到曲線任一段，按住左鍵上下拖動，可平滑放大／壓低附近日期，範圍為 1–12 倍；左右拖動可拉寬／收窄該側，在中央左右拖則調整兩側寬度。綠色控制點依畫面像素維持圓形，不隨面板比例被拉扁。可以分次調整不同位置，塑出不對稱或多個隆起；沒有波峰／波寬參數滑桿。提供「復原上一步」與「重設曲線」。聚焦白色控制點後，左右鍵選日期、上下鍵調大小、Shift＋左右鍵調寬度。日期滑桿會帶著整個形狀移動。設定中的「依時間距離調整節點大小」可關閉。這不篩掉新聞、不改關聯分數／位置／視角，也不重新呼叫 API。3D 使用完整倍率；逐篇時間軸圓點半徑上限為 2 倍，維持分類可讀性，密度格仍以篇數顯示。切入時間軸時曲線預設收合，可手動展開。吸附範圍會依實際節點大小與相機縮放調整。
 
-開關及焦點日期會保存在瀏覽器，也包含在匯出與圖譜快照的 `view.time_focus = {enabled, date}`。日期使用 UTC，還原時限制於該圖譜日期範圍。舊快照沒有這個欄位時沿用固定大小。此滑桿與時間軸的「發布截止」分開，兩者可以同時使用。
+曲線的最大放大超過 2 倍後，會逐步補償 3D 透視帶來的遠近尺寸差異；8 倍起完整補償，畫面上的尺寸差距主要由日期曲線決定，遠處的日期焦點節點也能大於近處的非焦點節點。鏡頭縮放仍有效。尺寸透過每幀調整 mesh scale 更新，不重建球體幾何，吸附同步使用實際大小。
+
+開關、焦點日期與塑形曲線會保存在瀏覽器，也包含在匯出與圖譜快照的 `view.time_focus = {enabled, date, peak, width, profile?}`。`profile` 是可選的 129 點倍率陣列；未塑形時沿用 `peak/width` 的鐘形分布，舊快照仍可讀取。日期使用 UTC，還原時限制於該圖譜日期範圍。舊快照沒有這個欄位時沿用固定大小。此滑桿與時間軸的「發布截止」分開，兩者可以同時使用。
 
 ## 圖上來源與圖譜快照
 
@@ -143,14 +161,14 @@ DB 採 URL 去除常見追蹤參數後的穩定 ID 去重；同網址跨來源�
 ## 來源
 
 - **Google 新聞 RSS**：文字關鍵字，日期運算子加上本地 UTC 過濾。索引與 RSS 不保證全部歷史新聞。
-- **Yahoo Finance**：透過 Google 新聞 RSS 限定 `site:finance.yahoo.com`，資料記錄 `source.via: google_news_rss`，不是 Yahoo 官方付費 API。
+- **Yahoo 新聞 RSS**：透過 Google RSS 限定所選地區 Yahoo 網站（台灣為 `tw.news.yahoo.com`），不是 Yahoo 官方付費 API；取得途徑記錄在 `source.via`。
 - **Massive**：官方 `/v2/reference/news`、`published_utc.gte/lt`、`next_url` 分頁。每頁最多 1000 筆；授權、歷史範圍與更新頻率依來源／方案。參考 [官方新聞 API](https://massive.com/docs/rest/stocks/news) 與 [驗證方式](https://massive.com/docs/rest/quickstart)。
 
 ### 語言、國家與新聞涵蓋範圍
 
-目前來源參數固定在伺服器端，不依開啟 WebUI 的手機／電腦國家或介面語言自動切換：Google RSS 使用 `hl=zh-TW`、`gl=TW`、`ceid=TW:zh-Hant`；Yahoo 使用 Google RSS 的 `en-US`／`US`／`US:en`，並限定 `site:finance.yahoo.com`；Massive 使用股票代碼查詢其供應商資料。請求由執行 server 的主機發出，不帶使用者 Google 帳號設定或定位。
+搜尋來源旁可選台灣、美國、香港、日本、英國，Google 與 Yahoo 同步使用該 RSS 國家／地區；不依手機 IP 或介面語言偷偷切換。Yahoo 同步切換當地新聞網站，美國涵蓋 Yahoo News／Finance。`source.country`、`source.language` 記錄**搜尋版本的地區／語言**，不是出版者國籍、事件所在地或文章語言偵測。SQLite 依地區分開查詢與日期覆蓋，同網址在不同地區命中時保留各自取得背景和全部 `origins`。舊資料沒有地區證據時保留未標記。Massive 仍依股票代碼搜尋，不受 RSS 地區選項影響。
 
-搜尋結果會受到搜尋詞語言、地區版本、出版商報導／索引涵蓋及 RSS 筆數限制影響。新聞篇數不等於各國的實際曝光量，也不能當成完整的全球報導統計。Google 官方亦說明新聞呈現受地區、語言與位置設定影響，見 [How news works](https://www.google.com/intl/en_us/search/howsearchworks/how-news-works/)。目前不提供新聞地區選單；右上角語言選單只翻譯介面。
+搜尋結果會受到搜尋詞語言、地區版本、出版商報導／索引涵蓋及 RSS 筆數限制影響。新聞篇數不等於各國的實際曝光量，也不能當成完整的全球報導統計。Google 官方亦說明新聞呈現受地區、語言與位置設定影響，見 [How news works](https://www.google.com/intl/en_us/search/howsearchworks/how-news-works/)。新聞地區選單與右上角介面語言分開；切換介面語言不更改新聞版區。
 
 ## 統一 schema 與可解釋關聯
 
@@ -175,7 +193,7 @@ DB 採 URL 去除常見追蹤參數後的穩定 ID 去重；同網址跨來源�
 - `news_atlas/model.py`：標準化、去重、實體辨識與關聯證據。
 - `news_atlas/channels.py`：預設分類、規則驗證、多標籤分類與文字依據。
 - `news_atlas/snapshots.py`：手動快照驗證與來源分區。
-- `dist/`：網頁、互動程式及離線圖形庫；`graph-view.js` 負責來源切換與分組，`timeline.js` 負責時間軸／密度格與 SVG 互動，`explorer-ui.js` 負責面板尺寸、瀏覽器偏好及 JSON 樹，`i18n.js` 負責介面語言。
+- `dist/`：網頁、互動程式及離線圖形庫；`graph-view.js` 負責來源切換與分組，`timeline.js` 負責時間軸／密度格與 SVG 互動，`time-lens.js` 負責鐘形增益編輯與遠近尺寸補償，`explorer-ui.js` 負責面板尺寸、瀏覽器偏好及 JSON 樹，`i18n.js` 負責介面語言。
 - `data/`：本地持久資料；`tests/`：隔離測試，不將測試文章寫入正式 DB。
 
 ## Docker 網路說明
@@ -214,7 +232,7 @@ node --check dist/app.js
 
 API 文件：http://127.0.0.1:8765/docs · OpenAPI：http://127.0.0.1:8765/openapi.json · 資料 schema：http://127.0.0.1:8765/api/schema
 
-完整的可視化功能、schema 產生流程、20 個 API 操作與 MCP 包裝方式見 [docs/API.md](docs/API.md)。包含單一 JSON 新聞搜尋、唯讀快取／缺口、文章標準化、建圖／篩選、多 roots 探索、日期分類彙整和視圖驗證。Swagger 已隨專案附帶，無需 CDN 或 npm；目前尚未實作 MCP transport。更新這次 Python 功能後需重啟 server，再重新整理頁面。
+完整的可視化功能、schema 產生流程、22 個 API 操作與 MCP 包裝方式見 [docs/API.md](docs/API.md)。包含單一 JSON 新聞搜尋、唯讀快取／缺口、文章標準化、建圖／篩選、多 roots 探索、日期分類彙整和視圖驗證。Swagger 已隨專案附帶，無需 CDN 或 npm；目前尚未實作 MCP transport。更新這次 Python 功能後需重啟 server，再重新整理頁面。
 
 圖內 Search 直接在瀏覽器對當下 runtime 新聞做文字排名並疊加星系，不發出 HTTP 請求、不提交表單、不重新抓新聞或清空節點。Search 與輸入框 Enter 都使用同一路徑，零筆命中保留現有圖譜與星系；點圖中空白處回到全局。獨立的 `/api/graph/explore` 仍供 API／MCP 客戶端使用。
 
@@ -241,8 +259,10 @@ python3 tests/browser_runtime_search.py /tmp/graphnews-runtime-regression.html
 
 ## 篩選框與圖內搜尋範圍
 
-「圖上顯示來源 · 即時篩選」標題列可拖曳，也支援方向鍵移動。按「收合」只保留標題列；按「展開」恢復，按「歸位」回到原位置。位置與收合狀態保存在此瀏覽器，不修改節點、來源選擇或搜尋文字。
+「圖上顯示來源」和「時間大小焦點」兩個浮動面板都可拖曳。▽ 收成約 36px 小圖示，拖動小圖示可移到不擋視線處，點一下展開；↺ 歸位。標題／圖示聚焦後也能用方向鍵移動。位置與收合狀態分別保存，不修改節點、來源或搜尋文字。
 
 圖內關鍵字匹配標題、來源提供的摘要（RSS description／Massive description）、代碼、實體、主題及分類。摘要可命中，但並沒有下載或索引新聞全文。只出現在未取得的全文中的詞無法匹配；本地尚未取得的文章也不可能由圖內搜尋召回。圖內搜尋限目前顯示節點，不是全部 SQLite／整個網路。
 
 Yahoo 來源目前限定美國英文 `finance.yahoo.com`，不包含 `tw.news.yahoo.com` 的台灣綜合新聞。欲搜尋特定產品，可先在左側 Google 來源使用產品名稱與涵蓋發布日的日期區間取得新聞；RSS 不保證收錄完整，股票代碼查詢也不保證包含所有產品活動報導。
+
+Quick range 切換及 3／6／9／12 月選擇會立即同步下方 Start／End，欄位顯示唯讀的實際 UTC 範圍；再次點 Quick range 及送出搜尋也會按當天日期更新。

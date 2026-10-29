@@ -4,23 +4,29 @@ Open the generated file in a WebGL browser; document.body.dataset.qa reports res
 No API keys, DB writes or provider requests. Cached news is never checked into the repo.
 """
 import json
-import re
 from pathlib import Path
 import sqlite3
 import sys
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from server import graph_payload
+from browser_startup import served_document
+from test_server import HTTPTests
 
 def generate(destination):
     with sqlite3.connect(f'file:{ROOT / "data/news-atlas.sqlite3"}?mode=ro',uri=True) as db:
         rows=[]
         for provider in ['google','yahoo','massive']:
-            records=db.execute("SELECT a.payload FROM articles a JOIN memberships m ON a.provider=m.provider AND a.id=m.article_id WHERE m.query_key LIKE '%:NVDA' AND a.provider=? ORDER BY a.published_at DESC LIMIT 800",(provider,)).fetchall()
+            records=db.execute("SELECT DISTINCT a.payload FROM articles a JOIN memberships m ON a.provider=m.provider AND a.id=m.article_id WHERE m.query_key LIKE '%:NVDA' AND a.published_at>='2025-10-28' AND a.published_at<'2026-10-29' AND a.provider=? ORDER BY a.published_at DESC LIMIT 800",(provider,)).fetchall()
             rows.extend(json.loads(r[0]) for r in records)
     if not rows: raise SystemExit('Requires real NVDA cached news; no synthetic substitute.')
     payload=graph_payload(rows)
-    html=re.sub(r'\?v=[^"\s]+','',(ROOT/'dist/index.html').read_text())
+    harness=HTTPTests();harness.setUp()
+    try:
+        html,assets=served_document(harness.request)
+        assert all(a['status']==200 for a in assets),assets
+    finally:
+        harness.tearDown()
     fixture='''<script>
 window.qaErrors=[];window.addEventListener('error',e=>qaErrors.push(e.message));window.addEventListener('unhandledrejection',e=>qaErrors.push(String(e.reason)));
 let acquisitionCalls=0;const fixture=PAYLOAD;
@@ -32,13 +38,11 @@ window.fetch=async(url,options)=>{
  throw Error('No server operation allowed during runtime search: '+url);
 };
 </script>'''.replace('PAYLOAD',json.dumps(payload).replace('</','<\\/'))
-    html=html.replace('<script src="/3d-force-graph.min.js"></script>',fixture+'<script>'+(ROOT/'dist/3d-force-graph.min.js').read_text().replace('</script','<\\/script')+'</script>')
-    for name in ['i18n.js','explorer-ui.js','graph-view.js','timeline.js','glow.js','date-range.js','interaction.js','app.js']:
-        html=html.replace(f'<script src="/{name}"></script>','<script>'+(ROOT/'dist'/name).read_text().replace('</script','<\\/script')+'</script>')
+    html=html.replace('<script>',fixture+'<script>',1)
     qa='''<script>
 const wait=ms=>new Promise(r=>setTimeout(r,ms)),check=(v,m)=>{if(!v)throw Error(m)};
 (async()=>{try{
- $('dateCustom').click();$('query').value='NVDA';$('ticker').value='NVDA';$('start').value='2025-10-28';$('end').value='2026-10-28';
+ $('dateCustom').click();$('query').value='NVDA';$('ticker').value='NVDA';$('start').value='2025-10-28';$('end').value='2026-10-28';$('end').dispatchEvent(new Event('input',{bubbles:true}));
  for(const p of ['google','yahoo','massive'])document.querySelector('.sources input[value='+p+']').checked=true;
  $('submit').click();await wait(1600);check(articles.length>0,'initial graph');check(acquisitionCalls===1,'one initial acquisition');
  const nodes=graph.graphData().nodes,links=graph.graphData().links,ids=articles.map(a=>a.id).join(),count=articles.length;
@@ -65,16 +69,54 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms)),check=(v,m)=>{if(!v)throw Error(
  check(dated,'dated node for time lens');
  $('timeSizeEnabled').checked=true;$('timeSizeEnabled').dispatchEvent(new Event('change'));
  $('timeFocusSlider').value=Math.round((AtlasTimeline.day(dated.published_at)-timelineBounds.start)/86400000);$('timeFocusSlider').dispatchEvent(new Event('input'));await wait(80);
- check(Math.abs(graph.nodeVal()(dated)-24)<.001,'focused radius doubles');
- const focusRadius=dated.__threeObj?.geometry?.parameters?.radius;
+ check(Math.abs(AtlasTimeline.timeScale(dated,timeFocus,timelineBounds)-2)<.001,'focused radius doubles');
+ const focusRadius=dated.__threeObj?.geometry?.parameters?.radius*dated.__threeObj?.scale?.x;
  check(Number.isFinite(focusRadius),'rendered sphere geometry exists');
  $('timeSizeEnabled').checked=false;$('timeSizeEnabled').dispatchEvent(new Event('change'));await wait(80);
- check(graph.nodeVal()(dated)===3,'disabled restores base size');
- check(Math.abs(focusRadius/dated.__threeObj.geometry.parameters.radius-2)<.001,'actual rendered radius doubles');
+ check(AtlasTimeline.timeScale(dated,timeFocus,timelineBounds)===1,'disabled restores base size');
+ check(Math.abs(focusRadius/(dated.__threeObj.geometry.parameters.radius*dated.__threeObj.scale.x)-2)<.001,'actual rendered radius doubles');
  check(graph.graphData().nodes===nodes&&graphWrites===0,'time lens preserves runtime graph');
  check(JSON.stringify(graph.cameraPosition())===cameraBefore,'time lens preserves camera');
  check($('timeFocusTicks').children.length===12,'12 month range has calendar month ticks');
  $('timeSizeEnabled').checked=true;$('timeSizeEnabled').dispatchEvent(new Event('change'));
+ // Real SVG input path: local shoulder shaping, no peak/width sliders, undo and persistence.
+ $('timeFocusSlider').value=Math.round(Number($('timeFocusSlider').max)/2);$('timeFocusSlider').dispatchEvent(new Event('input'));
+ const bell=$('timeBell'),bellRect=bell.getBoundingClientRect();bell.setPointerCapture=()=>{};bell.hasPointerCapture=()=>false;
+ const dragEvent=(type,x,y)=>new PointerEvent(type,{clientX:x,clientY:y,pointerId:42,button:0,buttons:type==='pointerup'?0:1,bubbles:true,cancelable:true});
+ const center=AtlasTimeLens.curve(timeFocus,timelineBounds).center;
+ const px=bellRect.left+bellRect.width*(12+(center+.14)*976)/1000,py=bellRect.top+bellRect.height*.65;
+ const beforeShape=JSON.stringify(timeFocus),geometry=dated.__threeObj.geometry;
+ $('timeBellLine').dispatchEvent(dragEvent('pointerdown',px,py));check(JSON.stringify(timeFocus)===beforeShape,'curve press preserves grab offset');
+ bell.dispatchEvent(dragEvent('pointermove',px,py-25));check(timeFocus.profile?.length===129,'direct curve stroke creates profile');
+ check(AtlasTimeline.profileGain(timeFocus,.14,timelineBounds)>2,'shoulder grows locally');
+ check(Math.abs(AtlasTimeline.profileGain(timeFocus,0,timelineBounds)-2)<.001,'shoulder sculpt leaves focus peak unchanged');
+ bell.dispatchEvent(dragEvent('pointerup',px,py-25));check(!timeLens.isDragging(),'curve drag released');
+ const firstShape=JSON.stringify(timeFocus.profile);
+ check(JSON.stringify(AtlasUI.read('timeFocus',{}).profile)===firstShape,'sculpted profile persisted in browser storage');
+ $('timeBellUndo').click();check(JSON.stringify(timeFocus)===beforeShape,'undo restores stroke');
+ $('timeBellHit').dispatchEvent(dragEvent('pointerdown',px,py));bell.dispatchEvent(dragEvent('pointermove',px+bellRect.width*.08,py));bell.dispatchEvent(dragEvent('pointerup',px+bellRect.width*.08,py));
+ check(timeFocus.profile?.length===129&&AtlasTimeline.profileGain(timeFocus,.22,timelineBounds)>1.3,'horizontal-only drag widens shoulder');
+ check(Math.abs(AtlasTimeline.profileGain(timeFocus,-.14,timelineBounds)-AtlasTimeline.profileGain(JSON.parse(beforeShape),-.14,timelineBounds))<.01,'horizontal width preserves opposite side');
+ $('timeBellUndo').click();check(JSON.stringify(timeFocus)===beforeShape,'undo width stroke');
+
+ check(!document.getElementById('timePeak')&&!document.getElementById('timeWidth'),'no peak or width sliders');
+ // A new stroke at the focus raises it to the cap and fully compensates depth.
+ const cx=bellRect.left+bellRect.width*(12+center*976)/1000;
+ $('timeBellHit').dispatchEvent(dragEvent('pointerdown',cx,py));bell.dispatchEvent(dragEvent('pointermove',cx,py-bellRect.height));bell.dispatchEvent(dragEvent('pointercancel',cx,py));
+ check(!timeLens.isDragging(),'curve cancel releases');graph.renderer().render(graph.scene(),graph.camera());
+ check($('timePerspective').textContent.includes('100%'),'high gain full compensation');
+ const cam=graph.camera(),m=cam.matrixWorld.elements,viewport=$('graph').getBoundingClientRect();
+ const projected=nodes.filter(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)&&Number.isFinite(n.z)).map(n=>{
+   const v=cam.position.clone().set(n.x,n.y,n.z).project(cam),r=n.__threeObj.geometry.parameters.radius*n.__threeObj.scale.x;
+   if(v.z<=-1||v.z>=1)return null;
+   const edge=cam.position.clone().set(n.x+m[0]*r,n.y+m[1]*r,n.z+m[2]*r).project(cam);
+   return Math.hypot((edge.x-v.x)*viewport.width/2,(edge.y-v.y)*viewport.height/2)/AtlasTimeline.timeScale(n,timeFocus,timelineBounds);
+ }).filter(x=>x>0);
+ check(projected.length>100,'visible projected nodes for compensation check');check(Math.max(...projected)/Math.min(...projected)<1.001,'screen-space radius follows Gaussian regardless of depth');
+ check(dated.__threeObj.geometry===geometry,'curve changes scale without rebuilding sphere geometry');
+ check(graphWrites===0&&graph.graphData().nodes===nodes,'curve keeps graph objects');check(JSON.stringify(graph.cameraPosition())===cameraBefore,'curve keeps camera');
+ check(JSON.stringify(savedPayload().view.time_focus.profile)===JSON.stringify(timeFocus.profile),'sculpted curve included in snapshot');
+ $('timeBellReset').click();check(timeFocus.peak===2&&timeFocus.width===.12&&!timeFocus.profile,'curve reset');
  const forestIds=[...activeTrace.nodes.keys()].sort().join(),forestRoots=lockedRoots.join();
  $('modeTimeline').click();
  check(lockedRoots.join()===forestRoots&&[...activeTrace.nodes.keys()].sort().join()===forestIds,'timeline shares selected forest');
@@ -87,7 +129,11 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms)),check=(v,m)=>{if(!v)throw Error(
  check($('timeline').querySelector('[data-node-id][data-focus-depth="0"]'),'individual timeline roots highlighted');
  $('timelineStyle').value='density';$('timelineStyle').dispatchEvent(new Event('change'));
  check(!qaErrors.length,qaErrors.join(';'));
- document.body.dataset.qa='PASS: actual time-size geometry, runtime identity/camera, 12 month ticks, shared timeline/density forest; hover preview, click confirmation, Escape, leave; NVDA three-source real cache -> IPO; '+count+' nodes retained; '+matches+' roots; no network, graph writes or form navigation';
+ $('modeNetwork').click();$('sourcePanelToggle').click();$('timeBellUndo').click();await wait(80);
+ const beforePanels=graph.graphData().nodes,beforePanelWrites=graphWrites;$('timePanelToggle').click();await wait(50);
+ for(const id of ['sourcePanel','timeFocusBar']){const rect=$(id).getBoundingClientRect();check(rect.width<=40&&rect.height<=40,'collapsed panel is a compact icon');}
+ check(graph.graphData().nodes===beforePanels&&graphWrites===beforePanelWrites,'collapsing tools retains graph');
+ document.body.dataset.qa='PASS: compact panels preserve graph, horizontal width and local sculpt/undo/cancel/persistence, depth-compensated projection, mesh reuse, actual time-size geometry, runtime identity/camera, 12 month ticks, shared timeline/density forest; hover preview, click confirmation, Escape, leave; NVDA three-source real cache -> IPO; '+count+' nodes retained; '+matches+' roots; no network, graph writes or form navigation';
  }catch(e){document.body.dataset.qa='FAIL: '+e.message+' ERRORS '+qaErrors.join(';');}finally{document.querySelectorAll('script').forEach(s=>s.remove());}})();
 </script>'''
     Path(destination).write_text((qa+'</body>').join(html.rsplit('</body>',1)))

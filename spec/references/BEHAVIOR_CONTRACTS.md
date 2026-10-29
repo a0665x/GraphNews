@@ -38,4 +38,16 @@ query/ticker/source/date 的 input/change 即時存草稿；不等待 submit。�
 
 ## 共用森林與日期大小
 
-3D、密度格、逐篇時間軸使用同一 activeTrace；分類／cutoff 不移除 hidden roots，來源取消才可修剪 roots。密度格不可把全部格內文章都說成匹配，必須顯示命中比例。時間大小滑桿不得寫 graphData、改相機、重新抓取或清選取；吸附使用動態 nodeVal 投影。保存快照包含時間／分類隱藏的路徑節點。
+3D、密度格、逐篇時間軸使用同一 activeTrace；分類／cutoff 不移除 hidden roots，來源取消才可修剪 roots。密度格不可把全部格內文章都說成匹配，必須顯示命中比例。時間大小滑桿不得寫 graphData、改相機、重新抓取或清選取；吸附使用 nodeVal × mesh scale 的實際半徑投影。保存快照包含時間／分類隱藏的路徑節點。
+
+鐘形增益：拖曳不能在按下時跳值、不能重建 geometry 或清 roots；任意曲線段局部塑形持續跟手，遠離筆觸的日期不應改變，取消／失去 pointer capture 要解除 busy。完整透視補償應讓相同日期的投影半徑一致。設定與 schema／快照驗證範圍一致。
+
+## 2026-10-29：時間曲線模組缺少 HTTP 路由
+
+新增 time-lens.js 時只改 HTML，漏掉 server.Handler 的靜態路由表。正式頁面 /time-lens.js 回 404，app.js 在註冊搜尋、語言與 API 問號事件前因 AtlasTimeLens 未定義而中止。舊的瀏覽器回放直接從磁碟嵌入 JS，因此測試通過也無法代表 HTTP 載入完整。
+
+修正：補路由；缺少可選曲線模組時顯示提示並停用該控制，基本搜尋／語言／說明仍初始化。新增 test_every_script_referenced_by_homepage_is_served，自動讀首頁全部 script src（含版本 query）逐一檢查 HTTP 200、JavaScript MIME 與非空內容。browser_startup.py 和真實快取 browser_runtime_search.py 都經實際 Handler 取得 HTML／JS，不能繞過路由讀 JS。前者驗證搜尋送出、語言、問號對話框與 Dashboard 連結，並可模擬缺模組降級。路由修正需要重啟 Python server；只重新整理會繼續使用舊路由。
+
+完整事故證據與交付檢查見 [2026-10-29 前端資源事故](bugfix-20261029-frontend-asset-startup.md)；曲線直接塑形與舊快照相容見 [塑形紀錄](lesson-20261029-curve-sculpting.md)。
+
+跨地區同 URL 保存不可改寫其他查詢的 source 背景，舊缺欄位不能補成新搜尋的國家；金鑰保存／忘記需依序執行，主機回應不包含金鑰。浮動面板收成小圖示後仍可操作，圓點以畫面尺寸驗收。詳見 [本輪紀錄](bugfix-20261029-floating-regions-persistence.md)。

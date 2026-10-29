@@ -21,7 +21,7 @@ class APIContractTests(unittest.TestCase):
             for method,op in methods.items():
                 names.append(op['operationId']);self.assertIn('x-mcp',op)
         self.assertEqual(len(names),len(set(names)))
-        self.assertEqual(len(names),20)
+        self.assertEqual(len(names),22)
         def walk(v):
             if isinstance(v,dict):
                 if '$ref' in v:

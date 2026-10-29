@@ -223,6 +223,29 @@ class HTTPTests(unittest.TestCase):
         head,data=connection.output.split(b'\r\n\r\n',1)
         return head,data
 
+    def test_every_script_referenced_by_homepage_is_served(self):
+        from html.parser import HTMLParser
+        class Scripts(HTMLParser):
+            sources = None
+            def __init__(self):
+                super().__init__()
+                self.sources = []
+            def handle_starttag(self, tag, attrs):
+                src = dict(attrs).get('src')
+                if tag == 'script' and src:
+                    self.sources.append(src)
+        head, html = self.request('GET', '/')
+        self.assertIn(b'200 OK', head)
+        parser = Scripts()
+        parser.feed(html.decode())
+        self.assertTrue(parser.sources)
+        for src in parser.sources:
+            with self.subTest(src=src):
+                head, content = self.request('GET', src)
+                self.assertIn(b'200 OK', head, 'Homepage dependency is unreachable: '+src)
+                self.assertIn(b'text/javascript', head)
+                self.assertTrue(content)
+
     def test_explorer_assets_and_schema_are_served(self):
         for path in ['/i18n.js','/explorer-ui.js','/timeline.js','/date-range.js','/interaction.js','/schema/news-atlas.schema.json']:
             head,data=self.request('GET',path)

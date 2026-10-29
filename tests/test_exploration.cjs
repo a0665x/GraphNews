@@ -25,6 +25,7 @@ const ui=require('../dist/explorer-ui.js');
 const fields=()=>Object.fromEntries(['rememberKey','key','keyStatus','forgetKey'].map(id=>[id,{value:'',addEventListener(k,f){this[k]=f}}]));
 let form=fields();const save=ui.initKey(id=>form[id]);form.key.value='test-only-key';save();
 form=fields();ui.initKey(id=>form[id]);assert.equal(form.key.value,'test-only-key','A new page reuses the remembered key');
+form.key.value='';form.key.input();assert.equal(ui.read('massiveKey'),'test-only-key','An empty transient field must not erase a remembered key');
 form.rememberKey.checked=false;form.rememberKey.change();assert.equal(ui.read('massiveKey'),null,'Opting out removes stored key');
 form.key.value='test-only-key';form.rememberKey.checked=true;form.key.change();form.forgetKey.onclick();assert.equal(ui.read('massiveKey'),null);
 const i18n=require('../dist/i18n.js');i18n.setLanguage('en');assert.equal(i18n.t('搜尋新聞'),'Search news');assert.equal(i18n.t('延伸 8 個節點 · 最多 3 層 · 每節點 4 分支'),'8 related nodes · Up to 3 hops · 4 branches/node');i18n.setLanguage('zh-Hant');assert.equal(i18n.t('搜尋新聞'),'搜尋新聞');

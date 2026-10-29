@@ -1,38 +1,42 @@
 # GraphNews / News Atlas — 專案入口
 
-最後原始碼查核：2026-10-28。這是目前工作目錄的實作地圖，不代表 GitHub main 或正在執行的 server 已同步。
+最後原始碼查核：2026-10-29。這是目前工作目錄的實作地圖，不代表 GitHub main 或正在執行的 server 已同步。
 
-真實新聞搜尋與可解釋關聯圖：Google RSS、Yahoo Finance（經 Google RSS）、Massive → 標準化／規則關聯 → SQLite 快取 → 3D 星系及時間軸。Python 標準函式庫後端、原生 JavaScript 前端，無 Docker、無前端建置程序。
+真實新聞搜尋與可解釋關聯圖：Google RSS、Yahoo 地區新聞（經 Google RSS）、Massive → 標準化／規則關聯 → SQLite 快取 → 3D 星系及時間軸。Python 標準函式庫後端、原生 JavaScript 前端，無 Docker、無前端建置程序。
 
 ## 新 session 的最短閱讀路徑
 
 1. 先讀本頁；需要啟動時讀 [RUNTIME.md](RUNTIME.md)。不要先掃描資料庫或大型 vendor bundle。
 2. 依下表只讀相關 Level 2 文件；再按需要深入 references。
 3. 編輯前回到文件列出的原始碼核對；文件不取代當下程式、測試或使用者指示。
-4. 依 [TESTING.md](TESTING.md) 選擇回歸檢查；有新行為時更新對應 spec。
+4. 修改前查看 [變更紀錄](CHANGELOG.md) 及相關事故／避坑紀錄；依 [TESTING.md](TESTING.md) 選擇回歸檢查；有新行為時更新對應 spec。
 
 | 任務／領域 | Level 2 入口 | 優先原始碼 |
 | --- | --- | --- |
 | 整體架構、資料流、模組邊界 | [ARCHITECTURE.md](ARCHITECTURE.md) | server.py、news_atlas/、dist/app.js |
-| API key、來源故障、歷史範圍、缺口補抓 | [SOURCES_AND_CACHE.md](SOURCES_AND_CACHE.md) | providers.py、search.py、storage.py |
+| API key、來源故障、歷史範圍、缺口補抓 | [SOURCES_AND_CACHE.md](SOURCES_AND_CACHE.md) | providers.py、regions.py、search.py、storage.py、credentials.py |
 | 標準文章、去重、關聯、分類、快照 | [DATA_MODEL.md](DATA_MODEL.md) | model.py、channels.py、snapshots.py、schema/ |
-| 滑鼠、星系、圖內搜尋、面板、輸入保存 | [UI.md](UI.md) | app.js、graph-view.js、interaction.js、glow.js、explorer-ui.js |
+| 滑鼠、星系、圖內搜尋、面板、輸入保存 | [UI.md](UI.md) | app.js、graph-view.js、interaction.js、glow.js、time-lens.js、explorer-ui.js |
 | Swagger、REST、未來 MCP | [API.md](API.md) | server.py、api.py、openapi.py、exploration.py |
-| 本機啟動、手機、重啟、版本不一致 | [RUNTIME.md](RUNTIME.md) | server.py、start-tailscale.sh |
+| 本機啟動、手機、重啟、版本不一致 | [RUNTIME.md](RUNTIME.md) | run.sh、scripts/launch.py、server.py、start-tailscale.sh |
 | 驗證與修改風險 | [TESTING.md](TESTING.md) | tests/ |
 
 ## 不可誤解的現況
 
 - 正式資料只來自真實來源。測試可隔離 mock；不能把測試資料帶入正式 DB。
 - 圖內 Search 在瀏覽器對當下最多 800 節點排名，不發 HTTP、不搜尋全部 DB、不重新抓新聞。
-- 搜尋涵蓋標題／來源摘要及結構欄位，**沒有抓取新聞全文**。Yahoo 目前不是台灣 Yahoo 新聞。
+- 搜尋涵蓋標題／來源摘要及結構欄位，**沒有抓取新聞全文**。Yahoo 可選台灣等地區；不要把版區當成出版者國籍。
 - Edge、分類及 root 分數是規則證據，不是因果、機率或向量語意推論。
-- API/SQLite/匯出的資料不得含 Massive key；瀏覽器的「記住 key」另行保存。
+- API 回應／SQLite／匯出不得含 Massive key；明確記住時保存於瀏覽器及主機獨立私有檔。
 - 左側搜尋草稿不能被圖譜操作、還原快照覆寫；快照不是日期覆蓋憑證。
 - REST/OpenAPI 已存在，MCP transport 尚未實作。
 
 ## Level 3 與既有文件
 
+- [references/bugfix-20261029-floating-regions-persistence.md](references/bugfix-20261029-floating-regions-persistence.md)：水平塑形、圓形控制點、精簡浮動面板、地區快取與金鑰／日期沿用。
+- [CHANGELOG.md](CHANGELOG.md)：已驗證變更與部署限制的持續 log。
+- [references/bugfix-20261029-frontend-asset-startup.md](references/bugfix-20261029-frontend-asset-startup.md)：新增 JS 漏路由導致整頁失去互動，以及測試繞過 HTTP 的盲點。
+- [references/lesson-20261029-curve-sculpting.md](references/lesson-20261029-curve-sculpting.md)：曲線要能局部塑形，不能把拖曲線做成整體波峰調整。
 - [references/BEHAVIOR_CONTRACTS.md](references/BEHAVIOR_CONTRACTS.md)：必須保留的互動行為、過往易回歸處。
 - [references/SCHEMA_AND_RULES.md](references/SCHEMA_AND_RULES.md)：ID、欄位、關聯規則、排名／多樹演算法。
 - [references/DOCUMENT_INVENTORY.md](references/DOCUMENT_INVENTORY.md)：文件分工與尚未完成項目。

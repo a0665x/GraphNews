@@ -6,7 +6,7 @@
 
 | 範圍 | 目前功能 |
 | --- | --- |
-| 真實新聞 | Google 台灣繁中 RSS、Yahoo Finance 美國英文（經 Google RSS）、Massive 新聞 API；明確股票代碼、API key 說明及瀏覽器記憶 |
+| 真實新聞 | Google／Yahoo 同步選 TW／US／HK／JP／GB 的 RSS、Massive 新聞 API；明確股票代碼、API key 說明及瀏覽器／主機獨立記憶 |
 | 搜尋日期與進度 | 自訂 UTC 日期、3/6/9/12 個月快速區間；逐來源狀態、數量、完成比例及 DB 既有／新增組成色條 |
 | 來源與關聯 | Google 綠、Yahoo 紫、Massive 藍；checkbox 即時篩選、混合來源或分組、來源內關聯與跨來源補充線；較弱跨來源彈簧及原有位置／距離保留 |
 | 3D 操作 | 力導向佈局、滑鼠旋轉／滾輪縮放、節點拖動牽引鄰居、Ctrl＋左鍵平移相機、視角重設 |
@@ -18,7 +18,7 @@
 | 證據與結構 | 懸停新聞預覽、詳情及原文、各 edge 的共同實體／主題／標題證據、分類命中依據、逐層展開 JSON 與標準 schema |
 | 儲存與介面 | SQLite 按來源快取與日期缺口補抓、手動圖譜快照及還原（含位置／設定／多 roots）、JSON 匯出、繁中／英文、面板拖曳調寬、行動裝置面板 |
 
-節點預設使用日期焦點：半徑依 UTC 日距離為基準的 1–2 倍，`nodeVal=3*scale³`；可關閉恢復 `nodeVal(3)`，未知日期維持基準。不以重要性、報導數或關聯數決定大小。視角遠近與 root 光暈會讓它看起來大小不同。單 root 閒置 5.5 秒回到全局，按住拖拉／平移時不逾時；關鍵字多 roots 不受此計時影響。
+節點預設使用日期焦點：半徑依 UTC 日距離套用鐘形增益，直接上下塑形及左右調寬，profile 倍率 1–12（預設 Gaussian 最高 2）；最大倍率超過 2 後漸進補償透視，8 起完整補償，幾何固定 `nodeVal(3)`，每幀更新 mesh scale；可關閉恢復 `nodeVal(3)`，未知日期維持基準。不以重要性、報導數或關聯數決定大小。視角遠近與 root 光暈會讓它看起來大小不同。單 root 閒置 5.5 秒回到全局，按住拖拉／平移時不逾時；關鍵字多 roots 不受此計時影響。
 
 關鍵字搜尋只查目前已載入且勾選來源的圖譜；搜尋沿用當下的來源、分類、時間截止及呈現模式，不切換模式或重建節點。它不呼叫新聞來源，也不搜尋整個 DB。每個字詞在標題／摘要／代碼／實體／主題／分類中的命中，分別加 8／2／10／6／3／3 分；英文單字有起始邊界；標題／摘要／主題／分類中的四個字母以上查詢支援詞首匹配（如 robot 命中 robots、robotics），代碼與實體仍精確匹配；中文採文字匹配，支援 NFKC 字元正規化。這是可解釋的字詞排序，沒有向量語意模型。沒命中就不選 root，不以不相關新聞湊滿 N。
 
@@ -39,7 +39,7 @@
 schema_version
 articles[]
   id / title / summary / url / published_at / fetched_at
-  source { provider, publisher, via? } / origins[]
+  source { provider, publisher, via?, country?, language?, sites? } / origins[]
   symbols[] / language / analysis_version
   entities[] { id, label, method, field?, evidence }
   topics[] { id, label, evidence[] }
@@ -53,17 +53,19 @@ view
   channel_filter / cutoff / timeline_zoom / timeline_style
   exploration { internalMin, crossMin, depth, branchLimit, pathMin, maxNodes }
   glow { enabled, brightness, radius, decay, background }
-  time_focus { enabled, date: UTC YYYY-MM-DD|null }
+  time_focus { enabled, date: UTC YYYY-MM-DD|null, peak: 1..12, width: 0.01..0.5, profile?: [129 gains] }
   focus { mode: overview|single|keyword, root_ids[], query, limit }
 ```
 
 完整定義以 [news-atlas.schema.json](../schema/news-atlas.schema.json) 為準。OpenAPI 的文章／關聯／視圖元件由同一份 schema 產生。`/api/normalize` 與 `/api/graph/build` 可獨立呼叫，不必先透過 UI 搜尋，也不會抓取傳入 URL 或寫入 DB。
 
-## 20 個 API 操作
+## 22 個 API 操作
 
 | 方法與路徑 | operationId | 用途／副作用 |
 | --- | --- | --- |
 | GET `/api/status` | `get_status` | DB 統計及伺服器是否設定 key，不回傳 key |
+| POST `/api/settings/massive-key` | `remember_massive_key` | 明確保存主機私有金鑰；只回 configured，不回 key |
+| DELETE `/api/settings/massive-key` | `forget_massive_key` | 清除主機保存；保留環境變數設定 |
 | GET `/api/capabilities` | `get_capabilities` | 可視化、來源地區及限制 |
 | GET `/api/schema` | `get_data_schema` | 統一 JSON Schema |
 | POST `/api/search` | `search_news_stream` | 真實來源搜尋、NDJSON 進度；更新快取 |
@@ -110,3 +112,5 @@ POST 使用 `Content-Type: application/json`。輸入錯誤為 400，未知資�
 圖內 Search v3 提供轉圈等待、掃描／命中／roots／高亮節點數量，以及空白查詢、無節點、Top N 不合法、零筆命中、錯誤、光暈關閉／零亮度、無延伸邊、視野外 roots 等提示。來源數字是各來源可用文章數；搜尋範圍是目前顯示圖譜（最多 800 節點），不是三個來源數字相加或全部 SQLite 資料。
 
 `view.time_focus` 由 `/api/view/validate` 驗證，`/api/snapshots` 存取並由 OpenAPI 引用 canonical schema。滑動本身在瀏覽器 runtime 完成；REST 不遠端操控滑桿。快照保留來源／edge 門檻篩選後的圖，時間／channel 只保存為顯示設定，避免丟失隱藏 roots 的完整路徑。
+
+搜尋與 cache graph 支援 rss_region：TW／US／HK／JP／GB；UI 預設 TW、Google/Yahoo 同步。API 省略時保留舊版 Google TW／Yahoo US Finance 行為。country/language/sites 為 source 的可選取得背景，快取依地區隔離且保存每個 query 的 source JSON，詳見 schema。新增地區與 key endpoints 後需重啟 server。

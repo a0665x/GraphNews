@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local News Atlas HTTP server; no credentials are persisted."""
+"""Local News Atlas HTTP server; opt-in credentials stay outside news DBs."""
 import concurrent.futures
 import datetime as dt
 import json
@@ -14,7 +14,7 @@ from pathlib import Path
 from news_atlas.model import SCHEMA_VERSION, article, clean, timestamp, deduplicate, build_relations
 from news_atlas.search import normalize_request, query_key, search_source
 from news_atlas.storage import Store
-from news_atlas import api
+from news_atlas import api, credentials
 from news_atlas.openapi import specification
 from news_atlas.channels import definitions, annotate, classify, version as channel_version
 
@@ -50,7 +50,7 @@ def search_events(request, key, store):
     by_source = {}
     for source in request['sources']:
         term = request['ticker'] if source == 'massive' else request['query']
-        by_source[source] = store.read(source, query_key(source, term), request['start'], request['end'])
+        by_source[source] = store.read(source, query_key(source, term, request.get('rss_region')), request['start'], request['end'])
     yield {'type': 'cache', 'graph': graph_payload([a for rows in by_source.values() for a in rows], store.list_channels()),
            'counts': {s: len(rows) for s, rows in by_source.items()},
            'message': '檢查日期覆蓋'}
@@ -62,7 +62,7 @@ def search_events(request, key, store):
             if source == 'massive' and not request['ticker']:
                 events.put({'type': 'source', 'source': source, 'articles': [], 'error': '未填股票代碼，已略過', 'error_code': 'missing_ticker'})
                 return
-            result = search_source(source, request['query'], request['ticker'], key, request['start'], request['end'], store, request['force_refresh'], progress)
+            result = search_source(source, request['query'], request['ticker'], key, request['start'], request['end'], store, request['force_refresh'], progress, **({'rss_region':request['rss_region']} if request.get('rss_region') is not None else {}))
         except Exception:
             # Deliberately exclude exception text that might contain request URLs or keys.
             result = {'source': source, 'articles': by_source[source], 'error': '資料處理失敗；已保留本地結果，請稍後重試', 'error_code': 'internal'}
@@ -116,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
                 rows=db.execute('SELECT payload FROM articles WHERE id=? ORDER BY provider',(ident,)).fetchall()
             self.json_response(200 if rows else 404,{'articles':[json.loads(r['payload']) for r in rows]} if rows else {'error':'文章不存在'});return
         if path == '/api/status':
-            self.json_response(200, {'schema_version': SCHEMA_VERSION, 'db': self.store.stats(), 'massive_configured': bool(os.environ.get('MASSIVE_API_KEY'))})
+            self.json_response(200, {'schema_version': SCHEMA_VERSION, 'db': self.store.stats(), 'massive_configured': bool(credentials.load_key(self.store.path) or os.environ.get('MASSIVE_API_KEY'))})
             return
         if path == '/api/channels':
             channels = self.store.list_channels()
@@ -129,7 +129,7 @@ class Handler(BaseHTTPRequestHandler):
             saved = self.store.load_snapshot(path.rsplit('/',1)[-1])
             self.json_response(200 if saved else 404, saved or {'error':'快照不存在'})
             return
-        files = {'/docs': ('dist/docs.html','text/html; charset=utf-8'), '/docs/': ('dist/docs.html','text/html; charset=utf-8'), '/vendor/swagger-ui-bundle.js': ('dist/vendor/swagger-ui-bundle.js','text/javascript; charset=utf-8'), '/vendor/swagger-ui.css': ('dist/vendor/swagger-ui.css','text/css; charset=utf-8'), '/interaction.js': ('dist/interaction.js','text/javascript; charset=utf-8'), '/date-range.js': ('dist/date-range.js','text/javascript; charset=utf-8'), '/glow.js': ('dist/glow.js','text/javascript; charset=utf-8'), '/i18n.js': ('dist/i18n.js','text/javascript; charset=utf-8'), '/explorer-ui.js': ('dist/explorer-ui.js','text/javascript; charset=utf-8'), '/schema/news-atlas.schema.json': ('schema/news-atlas.schema.json','application/json; charset=utf-8'), '/': ('dist/index.html', 'text/html; charset=utf-8'), '/3d-force-graph.min.js': ('dist/3d-force-graph.min.js', 'text/javascript; charset=utf-8'), '/app.js': ('dist/app.js', 'text/javascript; charset=utf-8'), '/graph-view.js': ('dist/graph-view.js', 'text/javascript; charset=utf-8'), '/timeline.js': ('dist/timeline.js', 'text/javascript; charset=utf-8')}
+        files = {'/time-lens.js': ('dist/time-lens.js','text/javascript; charset=utf-8'), '/docs': ('dist/docs.html','text/html; charset=utf-8'), '/docs/': ('dist/docs.html','text/html; charset=utf-8'), '/vendor/swagger-ui-bundle.js': ('dist/vendor/swagger-ui-bundle.js','text/javascript; charset=utf-8'), '/vendor/swagger-ui.css': ('dist/vendor/swagger-ui.css','text/css; charset=utf-8'), '/interaction.js': ('dist/interaction.js','text/javascript; charset=utf-8'), '/date-range.js': ('dist/date-range.js','text/javascript; charset=utf-8'), '/glow.js': ('dist/glow.js','text/javascript; charset=utf-8'), '/i18n.js': ('dist/i18n.js','text/javascript; charset=utf-8'), '/explorer-ui.js': ('dist/explorer-ui.js','text/javascript; charset=utf-8'), '/schema/news-atlas.schema.json': ('schema/news-atlas.schema.json','application/json; charset=utf-8'), '/': ('dist/index.html', 'text/html; charset=utf-8'), '/3d-force-graph.min.js': ('dist/3d-force-graph.min.js', 'text/javascript; charset=utf-8'), '/app.js': ('dist/app.js', 'text/javascript; charset=utf-8'), '/graph-view.js': ('dist/graph-view.js', 'text/javascript; charset=utf-8'), '/timeline.js': ('dist/timeline.js', 'text/javascript; charset=utf-8')}
         if path not in files:
             self.send_error(404)
             return
@@ -143,6 +143,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         path=urllib.parse.urlsplit(self.path).path
+        if path=='/api/settings/massive-key':
+            try:
+                credentials.forget_key(self.store.path)
+                self.json_response(200,{'configured':bool(os.environ.get('MASSIVE_API_KEY'))})
+            except OSError:self.json_response(500,{'error':'無法清除本機金鑰設定'})
+            return
         if not path.startswith('/api/channels/custom-'):
             self.json_response(404, {'error':'自訂 channel 不存在'})
             return
@@ -150,7 +156,7 @@ class Handler(BaseHTTPRequestHandler):
         self.json_response(200 if removed else 404, {'channels':self.store.list_channels()} if removed else {'error':'自訂 channel 不存在'})
 
     def do_POST(self):
-        if self.path not in ('/api/search', '/api/search/result', '/api/snapshots', '/api/channels', '/api/classify', *api.POST_PATHS):
+        if self.path not in ('/api/settings/massive-key','/api/search', '/api/search/result', '/api/snapshots', '/api/channels', '/api/classify', *api.POST_PATHS):
             self.send_error(404)
             return
         if self.headers.get('Content-Type', '').split(';')[0].strip() != 'application/json':
@@ -162,6 +168,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('搜尋內容大小錯誤')
             body = json.loads(self.rfile.read(length))
             if not isinstance(body,dict): raise ValueError('Request body 必須是 JSON object')
+            if self.path=='/api/settings/massive-key':
+                try:
+                    credentials.save_key(self.store.path,body.get('key'))
+                    self.json_response(200,{'configured':True})
+                except OSError:self.json_response(500,{'error':'無法保存本機金鑰設定'})
+                return
             if self.path in api.POST_PATHS:
                 self.json_response(200,api.dispatch(self.path,body,self.store,graph_payload));return
             if self.path == '/api/channels':
@@ -180,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(201, {**saved, 'db': self.store.stats()})
                 return
             request = normalize_request(body)
-            key = str(body.get('massive_key', '')).strip() or os.environ.get('MASSIVE_API_KEY', '')
+            key = str(body.get('massive_key', '')).strip() or credentials.load_key(self.store.path) or os.environ.get('MASSIVE_API_KEY', '')
             if len(key) > 512 or any(ord(c) < 32 or ord(c) > 126 for c in key):
                 raise ValueError('API key 格式不正確')
         except (ValueError, TypeError, OverflowError) as exc:

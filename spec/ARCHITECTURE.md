@@ -25,6 +25,8 @@ flowchart LR
 | --- | --- |
 | [server.py](../server.py) | ThreadingHTTPServer、靜態檔白名單、Handler、search_events、graph_payload |
 | [news_atlas/providers.py](../news_atlas/providers.py) | urllib 來源請求、Massive 安全分頁、RSS、Budget、部分失敗 Batch |
+| [news_atlas/regions.py](../news_atlas/regions.py) | RSS 版區、語系與 Yahoo 網域單一對照 |
+| [news_atlas/credentials.py](../news_atlas/credentials.py) | 獨立主機金鑰、原子保存、檔案權限；不入新聞 DB |
 | [news_atlas/search.py](../news_atlas/search.py) | normalize_request、帶版本／語系的 query_key、同查詢鎖、search_source |
 | [news_atlas/storage.py](../news_atlas/storage.py) | SQLite 表、WAL、覆蓋新鮮度、快照及自訂分類 |
 | [news_atlas/model.py](../news_atlas/model.py) | canonical_url、article、deduplicate、enrich、build_relations |
@@ -56,3 +58,7 @@ flowchart LR
 ## 改動邊界
 
 更改來源或快取語義先看 [SOURCES_AND_CACHE.md](SOURCES_AND_CACHE.md)；調整顯示門檻不應改寫來源證據。瀏覽器與 Python 各有排名實作，規則變更需保持一致並更新測試／API method。詳細合約見 [BEHAVIOR_CONTRACTS.md](references/BEHAVIOR_CONTRACTS.md)。
+
+`dist/time-lens.js`：日期鐘形增益編輯器及同幀 mesh scale 更新；依賴 AtlasTimeline.timeSettings/timeScale，調整 node 尺寸而不改 graphData、物理或相機。
+
+`run.sh`／`scripts/launch.py`：終端選單與程序生命週期。引用 server.Handler／ThreadingHTTPServer，不啟動第二份 HTTP 實作；Local 綁 0.0.0.0，Tailscale 綁 loopback 並管理單一前景 Serve 子程序。

@@ -22,7 +22,7 @@
       const matrix=camera.matrixWorld?.elements,right=matrix?{x:matrix[0],y:matrix[1],z:matrix[2]}:{x:1,y:0,z:0};const size=Number(graph.nodeRelSize?.())||4,value=graph.nodeVal?.();
       return graph.graphData().nodes.flatMap(node=>{if(!['x','y','z'].every(k=>Number.isFinite(node[k])))return [];const v=camera.position.clone().set(node.x,node.y,node.z).project(camera);if(v.z< -1||v.z>1)return [];
         const amount=typeof value==='function'?value(node):typeof value==='string'?node[value]:value;
-        const worldRadius=size*Math.cbrt(Number.isFinite(Number(amount))?Math.max(0,Number(amount)):3);
+        const worldRadius=(Number(node.__threeObj?.scale?.x)||1)*size*Math.cbrt(Number.isFinite(Number(amount))?Math.max(0,Number(amount)):3);
         const edge=camera.position.clone().set(node.x+right.x*worldRadius,node.y+right.y*worldRadius,node.z+right.z*worldRadius).project(camera);
         const body=Math.hypot((edge.x-v.x)*rect.width/2,(edge.y-v.y)*rect.height/2);
         return [{id:node.id,node,x:(v.x+1)*rect.width/2,y:(1-v.y)*rect.height/2,z:v.z,bodyRadius:body,radius:adaptiveRadius(body,strength())}];});}

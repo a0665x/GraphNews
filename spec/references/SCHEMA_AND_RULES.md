@@ -38,6 +38,6 @@ Channel 對 title/summary literal keywords 作 any/all，多標籤且有 primary
 
 ## 快照設定
 
-view：sources/separate/positions/mode/channel_filter/cutoff/timeline_zoom/timeline_style/channel_definitions/exploration/glow/focus/time_focus。time_focus 包含 boolean enabled 與 UTC date（或 null），不更改文章或 edge schema。focus 包含 mode（overview/single/keyword）、root_ids、query、limit。overview 不帶 roots，single 一個，keyword 必須有 query 和 roots。所有 root／位置 ID 必須在對應 view 範圍。
+view：sources/separate/positions/mode/channel_filter/cutoff/timeline_zoom/timeline_style/channel_definitions/exploration/glow/focus/time_focus。time_focus 包含 boolean enabled 與 UTC date（或 null）、peak（1–12，預設 2）、width（.01–.5，預設 .12）及可選 profile（129 個 1–12 有限數字，拒絕 boolean/null/錯誤長度）。profile 在相對焦點日期的 [-1,1] 日期跨度等距取樣，用 log 倍率線性插值，優先於 peak/width；不更改文章或 edge schema。focus 包含 mode（overview/single/keyword）、root_ids、query、limit。overview 不帶 roots，single 一個，keyword 必須有 query 和 roots。所有 root／位置 ID 必須在對應 view 範圍。
 
 canonical schema 是結構合約；HTTP handler 及 snapshots.py 另有語義驗證。調整其中一層時需同時檢查另一層，不能假定只通過 JSON Schema 就能儲存。

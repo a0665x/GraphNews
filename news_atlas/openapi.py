@@ -2,6 +2,7 @@
 import copy
 import json
 from .api import SCHEMA_PATH
+from .regions import REGIONS
 
 def obj(properties,required=()): return {'type':'object','properties':properties,**({'required':list(required)} if required else {})}
 def arr(items,maximum=None): return {'type':'array','items':items,**({'maxItems':maximum} if maximum else {})}
@@ -19,6 +20,7 @@ def specification():
     schemas['ChannelDefinitions']=convert(raw['properties']['channel_definitions'])
     provider={'type':'string','enum':['google','yahoo','massive']}
     date={'type':'string','format':'date'}
+    region={'type':['string','null'],'enum':[None,*REGIONS],'description':'Shared Google/Yahoo RSS edition. UI defaults TW. Omission preserves legacy Google TW / Yahoo US Finance semantics; explicit editions have separate coverage. Does not affect Massive.'}
     graph_node=copy.deepcopy(schemas['article']);graph_node['required']=['id','title','source']
     graph_node['properties']['id']={'type':'string','minLength':1,'maxLength':100}
     graph_node['properties'].update(display_sources=arr(provider,3),article_id=string(100))
@@ -29,7 +31,7 @@ def specification():
     schemas['Graph']=obj({'articles':arr(ref('GraphNode'),800),'relations':arr(ref('GraphEdge'),6000)},['articles','relations'])
     schemas['GraphPayload']=obj({'schema_version':{'const':'2.0'},'articles':arr(ref('article'),800),'relations':arr(ref('GraphEdge'),6000),'source_graphs':{'type':'object','additionalProperties':ref('Graph')},'cross_relations':arr(ref('GraphEdge')),'channel_definitions':ref('ChannelDefinitions'),'channel_version':string(),'total_articles':{'type':'integer'},'display_limit':{'const':800}})
     schemas['Error']=obj({'error':string()},['error'])
-    schemas['SearchRequest']=obj({'query':string(200),'ticker':string(20),'sources':{**arr(provider,3),'minItems':1,'uniqueItems':True},'start':date,'end':date,'force_refresh':{'type':'boolean','default':False},'massive_key':{'type':'string','format':'password','maxLength':512,'writeOnly':True,'description':'Optional; falls back to MASSIVE_API_KEY. Never returned or persisted.'}},['sources'])
+    schemas['SearchRequest']=obj({'rss_region':region,'query':string(200),'ticker':string(20),'sources':{**arr(provider,3),'minItems':1,'uniqueItems':True},'start':date,'end':date,'force_refresh':{'type':'boolean','default':False},'massive_key':{'type':'string','format':'password','maxLength':512,'writeOnly':True,'description':'Optional request override; otherwise uses a separately remembered host key, then MASSIVE_API_KEY. Never returned or stored in the news DB.'}},['sources'])
     schemas['SearchRequest']['description']='Inclusive UTC dates, maximum 366 days. Massive requires explicit ticker; Google/Yahoo require query or ticker. Missing dates default to the last 7 days.'
     schemas['SearchResult']=obj({'graph':ref('GraphPayload'),'sources':arr({'type':'object'}),'db':{'type':'object'},'elapsed':{'type':'number'},'partial':{'type':'boolean'}})
     schemas['StreamEvent']=obj({'type':{'enum':['cache','status','source','heartbeat','done']},'graph':ref('GraphPayload'),'source':provider,'articles':arr(ref('article')),'error':{'type':['string','null']},'cache':{'type':'object'},'counts':{'type':'object'},'phase':string(),'elapsed':{'type':'number'},'db':{'type':'object'}},['type'])
@@ -47,7 +49,7 @@ def specification():
     schemas['ExploreResult']=obj({'query':string(),'roots':arr(ref('RootMatch'),10),'trees':arr(ref('Tree'),10),'shared_nodes':arr(obj({'id':string(),'root_ids':arr(string())})),'matched_articles':{'type':'integer'},'scanned_articles':{'type':'integer'},'exploration':ref('exploration'),'method':{'const':'weighted_prefix_v2'},'scope':{'const':'submitted_graph'},'note':string()},['roots','trees','method','scope'])
     view=convert(raw['properties']['view']);view['properties'].update(positions=arr(obj({'id':string(),'x':{'type':'number'},'y':{'type':'number'},'z':{'type':'number'}},['id','x','y','z']),800),timeline_zoom={'type':'number','minimum':1,'maximum':4})
     schemas['View']=view
-    schemas['SnapshotRequest']=obj({'name':string(120),'search':obj({'query':string(200),'ticker':string(20),'start':date,'end':date}),'view':ref('View'),'source_graphs':{'type':'object','additionalProperties':ref('Graph')},'cross_relations':arr(ref('GraphEdge'),6000)},['view','source_graphs'])
+    schemas['SnapshotRequest']=obj({'name':string(120),'search':obj({'rss_region':region,'query':string(200),'ticker':string(20),'start':date,'end':date}),'view':ref('View'),'source_graphs':{'type':'object','additionalProperties':ref('Graph')},'cross_relations':arr(ref('GraphEdge'),6000)},['view','source_graphs'])
     schemas['SnapshotRequest']['description']='view.sources and view.separate are required. Source graph article IDs are canonical 24-char IDs; positions/focus IDs use provider::id in separate mode. Sanitized fields only; no credentials.'
     schemas['Snapshot']=obj({'id':string(),'name':string(),'created_at':{'type':'string','format':'date-time'},'search':{'type':'object'},'view':ref('View'),'source_graphs':{'type':'object','additionalProperties':ref('Graph')},'cross_relations':arr(ref('GraphEdge'))})
     schemas['DatabaseStats']=obj({k:{'type':'integer','minimum':0} for k in ('articles','coverage','attempts','snapshots')})
@@ -66,6 +68,8 @@ def specification():
         paths.setdefault(path,{})[method]=op
     def param(name):return [{'name':name,'in':'path','required':True,'schema':string()}]
     operation('/api/status','get','get_status','服務與 DB 狀態','System',response=obj({'schema_version':string(),'db':ref('DatabaseStats'),'massive_configured':{'type':'boolean'}}))
+    operation('/api/settings/massive-key','post','remember_massive_key','保存本機 Massive 金鑰','System',obj({'key':{'type':'string','minLength':1,'maxLength':512,'format':'password','writeOnly':True}},['key']),obj({'configured':{'type':'boolean'}}),description='Explicit opt-in: save the last key in a private host file (0600), outside SQLite and exports. Never returns the key. Reused across server restarts and ports on this host.',writes=True)
+    operation('/api/settings/massive-key','delete','forget_massive_key','清除本機 Massive 金鑰','System',response=obj({'configured':{'type':'boolean'}}),description='Deletes only the remembered host file. MASSIVE_API_KEY environment configuration is unchanged.',writes=True)
     operation('/api/capabilities','get','get_capabilities','功能、來源語系與限制','System')
     operation('/api/schema','get','get_data_schema','取得統一 JSON Schema','System',description='Canonical Draft 2020-12 data schema. The static /schema/news-atlas.schema.json URL is equivalent.')
     operation('/api/search','post','search_news_stream','串流搜尋真實新聞','News',ref('SearchRequest'),ref('StreamEvent'),description='NDJSON: one JSON event per line, not one JSON document. Updates cache. Source failures are events; HTTP 200 does not guarantee complete coverage. Use search_news_result for clients without streaming.',writes=True,network=True,media='application/x-ndjson')
