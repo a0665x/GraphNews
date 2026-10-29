@@ -1,6 +1,10 @@
 /* Interface translation only. Original news, evidence and JSON are never translated. */
 (function(root){
   const dictionary={
+    '3D 無法使用，已切換時間軸；新聞與關聯搜尋仍可使用。':'3D unavailable. Switched to Timeline; news and relationship search remain available.',
+    '3D 初始化失敗（WebGL）。':'3D initialization failed (WebGL).',
+    '3D 渲染中斷（WebGL context lost）。':'3D rendering interrupted (WebGL context lost).',
+    '新聞仍可使用，或切換時間軸查看。Chrome 請檢查設定 → 系統 → 圖形加速及 chrome://gpu，完成後重新載入頁面。':'News remains available; you can also switch to Timeline. In Chrome, check Settings → System → graphics acceleration and chrome://gpu, then reload the page.',
     '台灣':'Taiwan','美國':'United States','香港':'Hong Kong','日本':'Japan','英國':'United Kingdom','Yahoo 新聞 RSS':'Yahoo News RSS',
     "上下拉調整局部大小，左右拉調整該側寬度；中心左右拉可調整整體寬度。8× 起完整補償遠近。":"Drag vertically to sculpt size, horizontally to stretch that side. Drag the center sideways to adjust both sides. Full depth compensation at 8×.",
     "曲線塑形點；左右鍵選日期，上下鍵調大小，Shift＋左右鍵調寬度":"Curve point; left/right selects date, up/down sizes, Shift + left/right adjusts width",

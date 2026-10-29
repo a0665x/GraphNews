@@ -2,6 +2,15 @@
 
 入口：[PROJECT_MAP.md](PROJECT_MAP.md)。只記錄已完成的工作區變更；不表示執行中的 server 或 GitHub main 已同步。新增紀錄置頂，事故證據放 references；不記錄金鑰、完整 localStorage 或新聞 DB 內容。
 
+## 2026-10-29 — WebGL 錯誤診斷與時間軸降級
+
+- 使用者 Console／chrome://gpu 確認 WebGL 初始化失敗；底層 GPU 停用原因仍需用戶端排查。
+- 修正吞掉初始化錯誤、將錯誤覆寫成「無新聞」；新增中英診斷與 context lost／restored 處理。
+- 無 WebGL 時自動切換 SVG／DOM 時間軸並保留資料、關聯搜尋；恢復後可手動返回 3D。
+- 77 Python tests、16 CJS 檔及實際 Handler browser startup 通過；782 篇真實快照在正常／停用 WebGL 瀏覽器驗證，降級後仍能召回 3 roots。
+- 前端刷新即生效，已比對線上 app.js；未推送 GitHub，未宣稱使用者 GPU 已恢復。
+- [證據、回歸與排查紀錄](references/bugfix-20261029-webgl-fallback.md)。
+
 ## 2026-10-29 — main 發布整理
 
 - 以遠端 `6b156ef` 為基準，整理曲線塑形／寬度與透視補償、浮動小圖示、RSS 版區與 SQLite 4 來源背景、獨立本機金鑰、互動式 run.sh，以及首頁初始化修復。

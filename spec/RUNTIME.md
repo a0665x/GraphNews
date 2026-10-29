@@ -54,3 +54,7 @@ DB 是跨重啟累積的單一 SQLite，不是每次搜尋一份。備份先停�
 前端整頁失去互動時，先檢查 HTTP script 回應與第一個 JavaScript 例外；不要先把問題歸因於 API key 或來源。參閱 [前端資源事故及重啟驗證](references/bugfix-20261029-frontend-asset-startup.md)。塑形 profile 的後端驗證也需要重啟 Python，否則舊程序可能丟棄新欄位。
 
 主機記住的金鑰在 `<DB所在目錄>/private/<DB檔名>.massive-key`，目錄 0700、檔案 0600，原子置換；不加密，也不由 HTTP static 路由提供。預設路徑及 key／暫存檔 pattern 均由 .gitignore 排除。DB 備份不含金鑰；清除主機保存不改環境變數。新增 key API、地區搜尋、SQLite 4 遷移需要重啟 Python。
+
+## 有新聞但 3D 空白
+
+WebGL 初始化失敗或使用中 context lost 時，前端自動改用時間軸，診斷提示可展開；資料與 roots 搜尋保留。恢復 context 後可手動返回 3D。Chrome 的 GPU 必須在瀏覽器所在裝置上排查，不能以 server GPU 取代；先查 chrome://gpu 與原始 Console 錯誤。詳見 [WebGL 降級與驗證紀錄](references/bugfix-20261029-webgl-fallback.md)。

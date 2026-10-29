@@ -33,6 +33,8 @@
 
 ## Level 3 與既有文件
 
+- [references/bugfix-20261029-webgl-fallback.md](references/bugfix-20261029-webgl-fallback.md)：Chrome WebGL 停用的證據、初始化錯誤保留、自動時間軸降級與恢復。
+
 - [references/bugfix-20261029-floating-regions-persistence.md](references/bugfix-20261029-floating-regions-persistence.md)：水平塑形、圓形控制點、精簡浮動面板、地區快取與金鑰／日期沿用。
 - [CHANGELOG.md](CHANGELOG.md)：已驗證變更與部署限制的持續 log。
 - [references/bugfix-20261029-frontend-asset-startup.md](references/bugfix-20261029-frontend-asset-startup.md)：新增 JS 漏路由導致整頁失去互動，以及測試繞過 HTTP 的盲點。
